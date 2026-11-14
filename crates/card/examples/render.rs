@@ -4,7 +4,7 @@
 //!   <encounter.json> <tries.json> <de|en> <out_prefix> [full.json] [specs_dir]
 //!
 //! `specs_dir` holds `specs.json` (GW2 /v2/specializations?ids=all) and
-//! `icons/<Spec>.png`.
+//! `icons/<Spec>.png` and `bosses/<bossId>.png`. `STAMP` sets the footer date.
 
 use std::collections::HashMap;
 
@@ -39,7 +39,7 @@ fn main() {
     let boss_image = args.get(6).zip(full.as_ref().and_then(|f| f.encounter.boss_id)).and_then(|(dir, id)| {
         std::fs::read(format!("{dir}/bosses/{id}.png")).ok().and_then(|b| quagorious_card::BossImage::from_png(&b))
     });
-    let ctx = CardContext { today, stamp: "14.11.2026 · 20:31".into(), boss_image };
+    let ctx = CardContext { today, stamp: std::env::var("STAMP").unwrap_or_else(|_| "14.11.2026 · 20:31".into()), boss_image };
     let inp = CardInput { enc: &enc, full: full.as_ref(), ctx: &ctx, specs: &specs, lang };
     for (i, v) in variants(&enc, full.as_ref()).iter().enumerate() {
         let card = render(&inp, v, 2.0);

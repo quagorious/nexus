@@ -18,6 +18,22 @@ the one that gets copied, and the window remembers your choice for later tries.
 
 The header shows the boss artwork when the boss id is known.
 
+## Screenshots
+
+All three cards for the same try (a Deimos wipe as alac-heal Scourge), as
+they're copied to the clipboard:
+
+| Overview | Fight timeline | Your boon |
+|---|---|---|
+| ![Overview card](doc/images/card-deimos-overview.png) | ![Fight timeline card](doc/images/card-deimos-fight.png) | ![Alacrity card](doc/images/card-deimos-alacrity.png) |
+
+In game: the window with the try picker, the card carousel and the copy
+buttons, and the addon's page in Nexus → Options.
+
+| Window | Options |
+|---|---|
+| ![Quagorious window in game](doc/images/ingame-window-deimos.png) | ![Nexus options page](doc/images/ingame-options.png) |
+
 ## Setup
 
 1. Build the DLL (below) and copy `quagorious_share.dll` into
@@ -103,5 +119,7 @@ shows what's on offer).
 - `src/shell.rs`: open links in the browser (ShellExecute → `xdg-open` under Wine)
 - `src/lib.rs`: Nexus glue, worker and live threads, imgui window and options
 - `tools/probe.sh`, `tools/capture.sh`: dump API samples / record the live feed
+
+How it fits together, and why it's built this way: [doc/ADR](doc/ADR/README.md).
 
 Fonts: Noto Sans (SIL OFL), embedded.
