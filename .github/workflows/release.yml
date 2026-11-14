@@ -1,20 +1,23 @@
-# Builds the addon DLL when a GitHub release is published and attaches it,
-# together with checksums.txt (SHA-256), to that release.
+# Builds the addon DLL when a `v*` tag is pushed and then publishes a GitHub
+# release for that tag with the DLL and checksums.txt (SHA-256) attached.
 #
-# Release flow: bump `version` in Cargo.toml, commit, then publish a release
-# with the tag `v<version>` (e.g. v0.2.0), via the GitHub UI or
-# `gh release create v0.2.0 --generate-notes`.
+# The release is created only after the build, so it never exists without
+# its DLL: Nexus caches the release list, and a client that sees a release
+# without a .dll asset reports "up to date" until that cache expires.
+#
+# Release flow: bump `version` in Cargo.toml, commit, push, then
+# `git tag v0.3.0 && git push origin v0.3.0`.
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
-  contents: write # upload release assets
+  contents: write # create the release
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -25,18 +28,16 @@ jobs:
       run:
         shell: bash
     env:
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.ref_name }}
       TARGET: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name }}
 
       - name: Check tag matches Cargo.toml version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
           if [ "$TAG" != "v$version" ]; then
-            echo "::error::Release tag '$TAG' does not match Cargo.toml version '$version' (expected 'v$version')."
+            echo "::error::Tag '$TAG' does not match Cargo.toml version '$version' (expected 'v$version')."
             exit 1
           fi
 
@@ -60,7 +61,14 @@ jobs:
           sha256sum quagorious_share.dll > checksums.txt
           cat checksums.txt
 
-      - name: Upload to release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/quagorious_share.dll dist/checksums.txt --clobber
+        run: |
+          # A re-run for an existing release only replaces its files.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/quagorious_share.dll dist/checksums.txt --clobber
+          else
+            gh release create "$TAG" dist/quagorious_share.dll dist/checksums.txt \
+              --title "$TAG" --generate-notes --verify-tag
+          fi

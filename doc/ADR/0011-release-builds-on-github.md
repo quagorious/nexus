@@ -1,6 +1,6 @@
-# 0011. Build release DLLs on GitHub when a release is published
+# 0011. Build release DLLs on GitHub when a version tag is pushed
 
-- Status: Accepted (not yet run on GitHub)
+- Status: Accepted (amended after v0.2.0, see "Why the tag triggers the build")
 - Date: 2026-11-15
 
 ## Context
@@ -14,23 +14,25 @@ actual releases, not on every push.
 
 `.github/workflows/release.yml`:
 
-- **Trigger:** `release: published` only. Pushes, pull requests and plain
-  tags don't build.
+- **Trigger:** a pushed `v*` tag only. Branch pushes and pull requests
+  don't build.
 - **Runner:** `windows-latest` with the stable toolchain and the
   `x86_64-pc-windows-msvc` target, so it builds natively there (no
   `cargo-xwin`). `--locked` uses the committed `Cargo.lock`.
-- **Version guard:** the release tag must be `v` + the `Cargo.toml`
+- **Version guard:** the tag must be `v` + the `Cargo.toml`
   version. Nexus shows the version compiled into the DLL, so a mismatch
   fails before compiling.
-- **Artifacts:** `quagorious_share.dll` and `checksums.txt` (SHA-256 in
-  `sha256sum` format) are uploaded to the release with `gh release upload
-  --clobber`, so re-running a job replaces them.
+- **Artifacts:** after the build, the job creates the release for the tag
+  with `quagorious_share.dll` and `checksums.txt` (SHA-256 in `sha256sum`
+  format) already attached. Re-running a job for an existing release
+  replaces them (`gh release upload --clobber`).
 - **Permissions:** `contents: write` only, using the built-in `GITHUB_TOKEN`.
 
 ## Consequences
 
-- A release is: bump the version, commit and push, then `gh release create
-  v<version> --generate-notes`.
+- A release is: bump the version, commit and push, then tag the commit
+  `v<version>` and push the tag. Release notes are generated and can be
+  edited on GitHub afterwards.
 - Users can check a download with `sha256sum -c checksums.txt`.
 - Nexus updates the addon from these releases automatically (see below).
 
@@ -51,8 +53,17 @@ How Nexus uses that (read from its source, `CAddon::CheckUpdateViaGitHub`):
   versions, which Nexus reads as 65535. So a release with the **same**
   version (revision 0) counts as older: no re-download loop. Only a higher
   version triggers an update.
-- A release whose workflow is still running has no `.dll` yet and is simply
-  skipped until the upload finishes.
+- A release without a `.dll` asset is skipped. Nexus caches the release
+  list on disk (`addons/common/api.github.com/…/releases.json`), so that
+  answer sticks until the cache expires.
+
+## Why the tag triggers the build
+
+Originally the workflow ran on `release: published` and uploaded the DLL to
+the existing release. For v0.2.0 that left the release without assets for
+about three minutes; a Nexus client checked 18 seconds before the upload,
+cached the asset-less release and kept reporting "up to date". Building
+first and creating the release last closes that window.
 
 Installations from before this change (no update link) need one manual
 update to a build that has it.

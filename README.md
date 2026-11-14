@@ -93,18 +93,23 @@ cargo xwin build --release --target x86_64-pc-windows-msvc
 
 ### Releases (GitHub Actions)
 
-Publishing a GitHub release builds the DLL on a Windows runner and attaches
-`quagorious_share.dll` and `checksums.txt` (SHA-256) to it
-(`.github/workflows/release.yml`). Pushes and plain tags don't trigger a build.
+Pushing a `v<version>` tag builds the DLL on a Windows runner and then
+publishes a GitHub release with `quagorious_share.dll` and `checksums.txt`
+(SHA-256) attached (`.github/workflows/release.yml`). Other pushes don't
+trigger a build.
 
 1. Bump `version` in `Cargo.toml` (Nexus shows this version), commit, push.
-2. Publish a release whose tag is `v<version>`:
+2. Tag that commit `v<version>` and push the tag:
 
    ```sh
-   gh release create v0.2.0 --generate-notes
+   git tag v0.3.0 && git push origin v0.3.0
    ```
 
    A tag that doesn't match `Cargo.toml` fails the build before compiling.
+3. Optionally edit the generated release notes on GitHub afterwards.
+
+Don't create the release by hand first: it must not exist before its DLL is
+attached, or Nexus clients that check in between cache "no update".
 
 To verify a download: `sha256sum -c checksums.txt` in the folder with both files.
 
