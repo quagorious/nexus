@@ -4,8 +4,8 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::LazyLock,
     time::{Duration, SystemTime},
 };
 
@@ -15,9 +15,9 @@ use quagorious_card::{
     render, summary_text, today_chips, variants,
 };
 
-use crate::net;
+use serde::Deserialize;
 
-static CARD_GEN: AtomicU64 = AtomicU64::new(1);
+use crate::{data_path, net};
 
 /// One rendered variant of a card.
 pub struct VariantView {
@@ -30,13 +30,14 @@ pub struct VariantView {
     pub rgba: Vec<u8>,
     pub png: Vec<u8>,
     pub preview_png: Vec<u8>,
+    /// Nexus texture identifier, derived from the preview's content so an
+    /// unchanged card re-uses its texture instead of registering a new one.
+    pub preview_id: String,
     pub preview_size: [f32; 2],
 }
 
 /// All variants of one try, ready for display and copying.
 pub struct CardView {
-    pub id: u64,
-    pub generation: u64,
     pub variants: Vec<VariantView>,
     pub text: String,
     pub url: Option<String>,
@@ -87,6 +88,8 @@ pub fn build(
         .map(|v| {
             let big = render(&inp, v, 2.0);
             let preview = render(&inp, v, 1.0);
+            let mut hash = DefaultHasher::new();
+            preview.png.hash(&mut hash);
             VariantView {
                 key: variant_key(v),
                 label: v.label(lang),
@@ -94,23 +97,18 @@ pub fn build(
                 height: big.height,
                 rgba: big.rgba,
                 png: big.png,
+                preview_id: format!("QUAGORIOUS_CARD_{:016x}", hash.finish()),
                 preview_size: [preview.width as f32, preview.height as f32],
                 preview_png: preview.png,
             }
         })
         .collect();
-    CardView { id: enc.id, generation: CARD_GEN.fetch_add(1, Ordering::Relaxed), variants, text, url }
+    CardView { variants, text, url }
 }
 
 // ---------------------------------------------------------------------------
 // Share tokens (id → token), learned from live events, kept across restarts.
 // ---------------------------------------------------------------------------
-
-fn data_path(file: &str) -> Option<PathBuf> {
-    let dir = nexus::paths::get_addon_dir(crate::ADDON_NAME).ok()?;
-    let _ = fs::create_dir_all(&dir);
-    Some(dir.join(file))
-}
 
 pub fn load_tokens() -> HashMap<u64, String> {
     data_path("tokens.json")
@@ -131,102 +129,110 @@ pub fn save_tokens(tokens: &HashMap<u64, String>) {
 }
 
 // ---------------------------------------------------------------------------
+// Downloaded images, cached in the addon directory.
+// ---------------------------------------------------------------------------
+
+/// Decodes `file` from the addon directory, downloading it from `url` when
+/// it's missing or unreadable. Only a download that decodes is written.
+fn cached<T>(file: &str, url: &str, decode: impl Fn(&[u8]) -> Option<T>) -> Option<T> {
+    let path = data_path(file);
+    if let Some(v) = path.as_ref().and_then(|p| fs::read(p).ok()).and_then(|b| decode(&b)) {
+        return Some(v);
+    }
+    let bytes = net::fetch_bytes(url).map_err(|e| log::warn!("{file}: {e}")).ok()?;
+    let v = decode(&bytes)?;
+    if let Some(p) = path {
+        let _ = fs::write(p, &bytes);
+    }
+    Some(v)
+}
+
+// ---------------------------------------------------------------------------
 // Spec icons from the GW2 API, cached under `icons/`.
 // ---------------------------------------------------------------------------
+
+/// Spec/profession name → (profession, icon URL).
+type SpecIndex = HashMap<String, (String, String)>;
 
 #[derive(Default)]
 pub struct SpecStore {
     pub specs: Specs,
-    /// Spec/profession name → (profession, icon URL).
-    index: HashMap<String, (String, String)>,
-    index_loaded: bool,
+    /// `None` until it could be loaded; retried with the next card.
+    index: Option<SpecIndex>,
     tried: HashSet<String>,
 }
 
-impl SpecStore {
-    fn load_index(&mut self) {
-        if self.index_loaded {
-            return;
-        }
-        self.index_loaded = true;
-        let cache = data_path("gw2_specs.json");
-        let fresh = cache
-            .as_ref()
-            .and_then(|p| fs::metadata(p).ok())
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age < Duration::from_secs(14 * 86_400));
-        let raw: Option<(String, String)> = if fresh {
-            cache
-                .as_ref()
-                .and_then(|p| fs::read_to_string(p).ok())
-                .and_then(|t| serde_json::from_str(&t).ok())
-        } else {
-            None
-        };
-        let raw = match raw {
-            Some(r) => r,
-            None => match net::gw2_specs_raw() {
-                Ok(r) => {
-                    if let (Some(p), Ok(t)) = (cache.as_ref(), serde_json::to_string(&r)) {
-                        let _ = fs::write(p, t);
-                    }
-                    r
-                }
-                Err(e) => {
-                    log::warn!("could not load GW2 specializations: {e}");
-                    self.index_loaded = false; // try again next card
-                    return;
-                }
-            },
-        };
-        let (specs, profs) = raw;
-        for s in serde_json::from_str::<Vec<serde_json::Value>>(&specs).unwrap_or_default() {
-            if s["elite"].as_bool() != Some(true) {
-                continue;
-            }
-            if let (Some(n), Some(p), Some(u)) =
-                (s["name"].as_str(), s["profession"].as_str(), s["profession_icon_big"].as_str())
-            {
-                self.index.insert(n.into(), (p.into(), u.into()));
-            }
-        }
-        for p in serde_json::from_str::<Vec<serde_json::Value>>(&profs).unwrap_or_default() {
-            if let (Some(n), Some(u)) = (p["name"].as_str(), p["icon_big"].as_str()) {
-                self.index.insert(n.into(), (n.into(), u.into()));
-            }
-        }
+/// The index from `gw2_specs.json`, or from the GW2 API when that is missing
+/// or older than 14 days.
+fn load_spec_index() -> Option<SpecIndex> {
+    #[derive(Deserialize)]
+    struct Spec {
+        name: String,
+        profession: String,
+        #[serde(default)]
+        elite: bool,
+        profession_icon_big: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Profession {
+        name: String,
+        icon_big: String,
     }
 
+    let cache = data_path("gw2_specs.json");
+    let fresh = cache
+        .as_ref()
+        .and_then(|p| fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .is_some_and(|age| age < Duration::from_secs(14 * 86_400));
+    if fresh
+        && let Some(index) =
+            cache.as_ref().and_then(|p| fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok())
+    {
+        return Some(index);
+    }
+
+    let fetched = net::gw2_all::<Spec>("/v2/specializations")
+        .and_then(|specs| Ok((specs, net::gw2_all::<Profession>("/v2/professions")?)));
+    let (specs, professions) = match fetched {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("could not load GW2 specializations: {e}");
+            return None;
+        }
+    };
+    let mut index = SpecIndex::new();
+    for s in specs.into_iter().filter(|s| s.elite) {
+        if let Some(icon) = s.profession_icon_big {
+            index.insert(s.name, (s.profession, icon));
+        }
+    }
+    for p in professions {
+        index.insert(p.name.clone(), (p.name, p.icon_big));
+    }
+    if let (Some(p), Ok(t)) = (cache, serde_json::to_string(&index)) {
+        let _ = fs::write(p, t);
+    }
+    Some(index)
+}
+
+impl SpecStore {
     /// Makes sure every spec in `names` has an entry (icon if available).
     pub fn ensure<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
         let missing: Vec<&str> = names.into_iter().filter(|n| !n.is_empty() && !self.tried.contains(*n)).collect();
         if missing.is_empty() {
             return;
         }
-        self.load_index();
-        if !self.index_loaded {
-            return;
+        if self.index.is_none() {
+            self.index = load_spec_index();
         }
-        let icon_dir = data_path("icons");
-        if let Some(d) = &icon_dir {
-            let _ = fs::create_dir_all(d);
-        }
+        let Some(index) = &self.index else { return };
         for name in missing {
             self.tried.insert(name.to_string());
-            let Some((profession, url)) = self.index.get(name).cloned() else {
-                continue;
-            };
-            let file = icon_dir.as_ref().map(|d| d.join(format!("{name}.png")));
-            let bytes = file.as_ref().and_then(|f| fs::read(f).ok()).or_else(|| {
-                let b = net::fetch_bytes(&url).ok()?;
-                if let Some(f) = &file {
-                    let _ = fs::write(f, &b);
-                }
-                Some(b)
-            });
-            let icon = bytes.and_then(|b| IconMask::from_png(&b));
-            self.specs.insert(name.to_string(), SpecInfo { profession, icon });
+            let Some((profession, url)) = index.get(name) else { continue };
+            let icon = cached(&format!("icons/{name}.png"), url, IconMask::from_png);
+            self.specs.insert(name.to_string(), SpecInfo { profession: profession.clone(), icon });
         }
     }
 }
@@ -236,44 +242,21 @@ impl SpecStore {
 // under `bosses/`.
 // ---------------------------------------------------------------------------
 
+static BOSS_URLS: LazyLock<HashMap<u64, String>> =
+    LazyLock::new(|| serde_json::from_str(include_str!("../assets/boss_images.json")).unwrap_or_default());
+
 #[derive(Default)]
 pub struct BossImages {
-    urls: Option<HashMap<u64, String>>,
     cache: HashMap<u64, Option<BossImage>>,
 }
 
 impl BossImages {
     pub fn get(&mut self, boss_id: u64) -> Option<BossImage> {
-        if let Some(img) = self.cache.get(&boss_id) {
-            return img.clone();
-        }
-        let urls = self.urls.get_or_insert_with(|| {
-            serde_json::from_str::<HashMap<String, String>>(include_str!("../assets/boss_images.json"))
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
-                .collect()
-        });
-        let img = urls.get(&boss_id).cloned().and_then(|url| {
-            let file = data_path("bosses").map(|d| {
-                let _ = fs::create_dir_all(&d);
-                d.join(format!("{boss_id}.png"))
-            });
-            let bytes = file.as_ref().and_then(|f| fs::read(f).ok()).or_else(|| match net::fetch_bytes(&url) {
-                Ok(b) => {
-                    if let Some(f) = &file {
-                        let _ = fs::write(f, &b);
-                    }
-                    Some(b)
-                }
-                Err(e) => {
-                    log::warn!("boss image {boss_id}: {e}");
-                    None
-                }
-            })?;
-            BossImage::from_png(&bytes)
-        });
-        self.cache.insert(boss_id, img.clone());
-        img
+        self.cache
+            .entry(boss_id)
+            .or_insert_with(|| {
+                cached(&format!("bosses/{boss_id}.png"), BOSS_URLS.get(&boss_id)?, BossImage::from_png)
+            })
+            .clone()
     }
 }

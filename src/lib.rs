@@ -39,7 +39,7 @@ use nexus::{
     texture::get_texture_or_create_from_memory,
 };
 use cards::{CardView, VariantView};
-use quagorious_card::{Encounter, FullEncounter, Lang, TrySummary};
+use quagorious_card::{Encounter, FullEncounter, Lang, MATTE, TrySummary};
 use serde::{Deserialize, Serialize};
 
 use net::{NetError, NetResult, Session};
@@ -88,10 +88,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 struct Settings {
     /// Account-only GW2 subtoken (the API key itself is never stored).
     subtoken: Option<String>,
-    subtoken_expire: Option<String>,
-    account: Option<String>,
-    /// "de" or "en".
-    locale: String,
+    locale: Lang,
     /// Pop the window open when a new encounter arrives.
     auto_open: bool,
     /// Copy the card image to the clipboard as soon as a new encounter arrives.
@@ -104,9 +101,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             subtoken: None,
-            subtoken_expire: None,
-            account: None,
-            locale: "de".into(),
+            locale: Lang::De,
             auto_open: true,
             auto_copy: false,
             notify: true,
@@ -128,7 +123,7 @@ enum Live {
     #[default]
     Off,
     Connecting,
-    Live,
+    Streaming,
     Retrying(String),
 }
 
@@ -176,21 +171,27 @@ fn set_message(text: impl Into<String>, error: bool) {
 }
 
 fn lang() -> Lang {
-    Lang::from_code(&lock(&SETTINGS).locale)
+    lock(&SETTINGS).locale
+}
+
+/// NUL-terminated UTF-16 for Win32 calls.
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 // ---------------------------------------------------------------------------
 // Settings persistence
 // ---------------------------------------------------------------------------
 
-fn settings_path() -> Option<PathBuf> {
-    let dir = get_addon_dir(ADDON_NAME).ok()?;
-    let _ = fs::create_dir_all(&dir);
-    Some(dir.join("settings.json"))
+/// `file` (may include a subdirectory) inside the addon's data directory.
+fn data_path(file: &str) -> Option<PathBuf> {
+    let path = get_addon_dir(ADDON_NAME).ok()?.join(file);
+    let _ = fs::create_dir_all(path.parent()?);
+    Some(path)
 }
 
 fn load_settings() {
-    let loaded = settings_path()
+    let loaded = data_path("settings.json")
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str::<Settings>(&t).ok());
     if let Some(s) = loaded {
@@ -199,12 +200,12 @@ fn load_settings() {
 }
 
 fn save_settings() {
-    let Some(path) = settings_path() else { return };
+    let Some(path) = data_path("settings.json") else { return };
     let text = serde_json::to_string_pretty(&*lock(&SETTINGS));
-    if let Ok(text) = text {
-        if let Err(e) = fs::write(&path, text) {
-            log::warn!("could not save settings: {e}");
-        }
+    if let Ok(text) = text
+        && let Err(e) = fs::write(&path, text)
+    {
+        log::warn!("could not save settings: {e}");
     }
 }
 
@@ -220,10 +221,8 @@ fn now_ms() -> i64 {
 /// there is none, it expires within 5 minutes, or `force` is set.
 fn ensure_session(force: bool) -> NetResult<Session> {
     let mut slot = lock(&SESSION);
-    if !force {
-        if let Some(s) = slot.as_ref().filter(|s| s.expires_at - now_ms() > 5 * 60_000) {
-            return Ok(s.clone());
-        }
+    if !force && let Some(s) = slot.as_ref().filter(|s| s.expires_at - now_ms() > 5 * 60_000) {
+        return Ok(s.clone());
     }
     let Some(subtoken) = lock(&SETTINGS).subtoken.clone() else {
         return Err(NetError::Unauthorized("not connected".into()));
@@ -277,21 +276,11 @@ fn worker_loop(rx: Receiver<Cmd>) {
         lock(&SHARED).conn = Conn::Connecting;
         w.refresh(false);
     }
-    while let Ok(first) = rx.recv() {
+    while let Ok(cmd) = rx.recv() {
         if STOP.load(Ordering::Relaxed) {
             break;
         }
-        // Coalesce bursts of events into one refresh.
-        let mut refresh: Option<bool> = None;
-        for cmd in std::iter::once(first).chain(rx.try_iter()) {
-            match cmd {
-                Cmd::Refresh { announce } => refresh = Some(refresh.unwrap_or(false) || announce),
-                other => w.handle(other),
-            }
-        }
-        if let Some(announce) = refresh {
-            w.refresh(announce);
-        }
+        w.handle(cmd);
     }
 }
 
@@ -300,12 +289,7 @@ impl Worker {
         match cmd {
             Cmd::Connect(key) => self.connect(&key),
             Cmd::Disconnect => {
-                {
-                    let mut s = lock(&SETTINGS);
-                    s.subtoken = None;
-                    s.subtoken_expire = None;
-                    s.account = None;
-                }
+                lock(&SETTINGS).subtoken = None;
                 save_settings();
                 *lock(&SESSION) = None;
                 *self = Worker::default();
@@ -320,9 +304,12 @@ impl Worker {
                     self.boss_ids.insert(id, b);
                 }
                 if let Some(token) = token {
-                    let mut sh = lock(&SHARED);
-                    sh.web_tokens.insert(id, token);
-                    cards::save_tokens(&sh.web_tokens);
+                    let tokens = {
+                        let mut sh = lock(&SHARED);
+                        sh.web_tokens.insert(id, token);
+                        sh.web_tokens.clone()
+                    };
+                    cards::save_tokens(&tokens);
                 }
                 let is_new = self.known.insert(id);
                 // Update the list first so the card gets its "today" chips.
@@ -340,21 +327,16 @@ impl Worker {
 
     fn connect(&mut self, api_key: &str) {
         lock(&SHARED).conn = Conn::Connecting;
-        let (subtoken, expire) = match net::create_subtoken(api_key) {
-            Ok(r) => r,
+        let subtoken = match net::create_subtoken(api_key) {
+            Ok(t) => t,
             Err(e) => {
                 lock(&SHARED).conn = Conn::Error(format!("GW2 API: {e}"));
                 return;
             }
         };
-        {
-            let mut s = lock(&SETTINGS);
-            s.subtoken = Some(subtoken);
-            s.subtoken_expire = Some(expire);
-        }
+        lock(&SETTINGS).subtoken = Some(subtoken);
         match ensure_session(true) {
-            Ok(session) => {
-                lock(&SETTINGS).account = Some(session.account.clone());
+            Ok(_) => {
                 save_settings();
                 *self = Worker::default();
                 {
@@ -371,8 +353,9 @@ impl Worker {
         }
     }
 
-    /// Loads the try list into `SHARED`. Returns it when it changed.
-    fn fetch_list(&mut self) -> Option<Vec<TrySummary>> {
+    /// Loads the try list into `SHARED`. Returns whether it changed, or
+    /// `None` when loading failed (the error is shown in the window).
+    fn fetch_list(&mut self) -> Option<bool> {
         let list = match with_session(|s| net::list_tries(s, 50)) {
             Ok(l) => l.tries,
             Err(e) => {
@@ -382,54 +365,59 @@ impl Worker {
             }
         };
         let mut sh = lock(&SHARED);
-        if sh.tries == list {
-            return None;
-        }
-        sh.tries = list.clone();
-        Some(list)
+        let changed = sh.tries != list;
+        sh.tries = list;
+        Some(changed)
     }
 
     /// Reloads the list (initial load and after reconnects). With `announce`,
     /// a try we haven't seen yet is shown like a live event.
     fn refresh(&mut self, announce: bool) {
-        let first_load = !self.loaded_once;
-        let changed = self.fetch_list();
-        if changed.is_none() && !first_load {
+        let Some(changed) = self.fetch_list() else { return };
+        // Everything in the first list we get is old news, never "new".
+        let first_load = !std::mem::replace(&mut self.loaded_once, true);
+        if !changed && !first_load {
             return;
         }
-        self.loaded_once = true;
-        let list = lock(&SHARED).tries.clone();
-        let newest = list.first().map(|t| t.id);
-        let newest_is_new = newest.is_some_and(|id| !self.known.contains(&id));
-        self.known.extend(list.iter().map(|t| t.id));
-        let current = lock(&SHARED).current;
+        let (ids, current) = {
+            let sh = lock(&SHARED);
+            (sh.tries.iter().map(|t| t.id).collect::<Vec<_>>(), sh.current)
+        };
+        let newest = ids.first().copied();
+        let unseen = newest.filter(|id| !self.known.contains(id));
+        self.known.extend(ids);
 
-        if announce && !first_load && newest_is_new {
-            let id = newest.unwrap();
-            log::info!("new encounter {id}");
-            self.show(id, true);
-        } else if let Some(id) = current.or(newest) {
+        match unseen {
+            Some(id) if announce && !first_load => {
+                log::info!("new encounter {id}");
+                self.show(id, true);
+            }
             // Re-render: the "today" chips depend on the list.
-            self.show(id, false);
+            _ => {
+                if let Some(id) = current.or(newest) {
+                    self.show(id, false);
+                }
+            }
         }
     }
 
     fn show(&mut self, id: u64, is_new: bool) {
         lock(&SHARED).loading = true;
-        let locale = lock(&SETTINGS).locale.clone();
+        let lang = lang();
         let enc = match self.details.get(&id) {
-            Some(e) => Ok(e.clone()),
-            None => with_session(|s| net::encounter(s, id, &locale)),
+            Some(e) => e.clone(),
+            None => match with_session(|s| net::encounter(s, id, lang.code())) {
+                Ok(e) => {
+                    self.details.insert(id, e.clone());
+                    e
+                }
+                Err(e) => {
+                    lock(&SHARED).loading = false;
+                    set_message(format!("Could not load encounter {id}: {e}"), true);
+                    return;
+                }
+            },
         };
-        let enc = match enc {
-            Ok(e) => e,
-            Err(e) => {
-                lock(&SHARED).loading = false;
-                set_message(format!("Could not load encounter {id}: {e}"), true);
-                return;
-            }
-        };
-        self.details.insert(id, enc.clone());
 
         let (tries, token) = {
             let sh = lock(&SHARED);
@@ -447,7 +435,7 @@ impl Worker {
             .and_then(|f| f.encounter.boss_id)
             .or_else(|| self.boss_ids.get(&id).copied())
             .and_then(|b| self.boss_images.get(b));
-        let view = Arc::new(cards::build(&enc, full.as_ref(), &tries, lang(), url, &self.specs.specs, boss_image));
+        let view = Arc::new(cards::build(&enc, full.as_ref(), &tries, lang, url, &self.specs.specs, boss_image));
         {
             let mut sh = lock(&SHARED);
             sh.current = Some(id);
@@ -465,7 +453,7 @@ impl Worker {
             }
             let copied = auto_copy.then(|| copy_image(focused(&view)));
             if notify {
-                send_alert(new_card_alert(&enc, focused(&view), copied, lang()));
+                send_alert(new_card_alert(&enc, focused(&view), copied, lang));
             }
         }
     }
@@ -476,24 +464,21 @@ impl Worker {
         if let Some(f) = self.full.get(&id) {
             return Some(f.clone());
         }
-        for attempt in 0..2 {
+        for attempt in 1..=2 {
+            if attempt > 1 {
+                thread::sleep(Duration::from_secs(2));
+            }
             match net::full_encounter(id, token) {
                 Ok(f) => {
                     self.full.insert(id, f.clone());
                     return Some(f);
                 }
-                Err(e) => {
-                    log::warn!("full analysis for {id} failed (attempt {}): {e}", attempt + 1);
-                    thread::sleep(Duration::from_secs(2));
-                }
+                Err(e) => log::warn!("full analysis for {id} failed (attempt {attempt}): {e}"),
             }
         }
         None
     }
 }
-
-/// Card background behind the rounded corners, for consumers without alpha.
-const MATTE: [u8; 3] = [24, 22, 30];
 
 /// The variant the carousel shows: the last-focused kind, else the first.
 fn focused(card: &CardView) -> &VariantView {
@@ -610,21 +595,13 @@ fn live_loop() {
         set_live(Live::Connecting);
         let started = Instant::now();
         let result = (|| -> NetResult<()> {
-            let session = ensure_session(false)?;
-            let (session, token) = match net::live_token(&session) {
-                Err(NetError::Unauthorized(_)) => {
-                    let s = ensure_session(true)?;
-                    let t = net::live_token(&s)?;
-                    (s, t)
-                }
-                r => (session, r?),
-            };
+            let (session, token) = with_session(|s| Ok((s.clone(), net::live_token(s)?)))?;
             net::listen(
                 &session,
                 &token,
                 || {
                     log::info!("live feed connected");
-                    set_live(Live::Live);
+                    set_live(Live::Streaming);
                     // Catch up on anything uploaded while we were away.
                     send(Cmd::Refresh { announce: true });
                 },
@@ -688,10 +665,8 @@ fn load() {
         if !is_release {
             let card = lock(&SHARED).card.clone();
             match card {
-                Some(c) => {
-                    let _ = copy_image(focused(&c));
-                    send_alert("Quagorious: card copied");
-                }
+                Some(c) if copy_image(focused(&c)) => send_alert("Quagorious: card copied"),
+                Some(_) => send_alert("Quagorious: copy failed"),
                 None => send_alert("Quagorious: no card yet"),
             }
         }
@@ -706,7 +681,9 @@ fn unload() {
     STOP.store(true, Ordering::Relaxed);
     net::shutdown_live_socket();
     lock(&CMD_TX).take(); // worker's recv() returns Err once the sender is gone
-    // Our code must not run after the DLL is gone: wait for the threads.
+    // Our code must not run after the DLL is gone: wait for the threads. The
+    // socket is shut down again on every poll because the live thread may
+    // have been mid-connect (no socket to close yet) the first time.
     let threads: Vec<_> = lock(&THREADS).drain(..).collect();
     let deadline = Instant::now() + Duration::from_secs(25);
     for t in threads {
@@ -743,7 +720,7 @@ fn status_line(ui: &Ui, sh: &Shared) {
         Conn::Error(e) => ui.text_colored(RED, format!("Error: {e}")),
         Conn::Connected(account) => {
             let (col, live) = match &sh.live {
-                Live::Live => (GREEN, "live".to_string()),
+                Live::Streaming => (GREEN, "live".to_string()),
                 Live::Connecting => (MUTED, "connecting live feed...".to_string()),
                 Live::Off => (MUTED, "live feed off".to_string()),
                 Live::Retrying(r) => (YELLOW, format!("live feed lost ({r}), retrying")),
@@ -777,10 +754,10 @@ fn draw_window(ui: &Ui) {
         .opened(&mut open)
         .size([460.0, 720.0], Condition::FirstUseEver)
         .build(ui, || {
-            let (tries, current, card, loading, message, ..) = {
+            let (tries, current, card, loading, message) = {
                 let sh = lock(&SHARED);
                 status_line(ui, &sh);
-                (sh.tries.clone(), sh.current, sh.card.clone(), sh.loading, sh.message.clone(), ())
+                (sh.tries.clone(), sh.current, sh.card.clone(), sh.loading, sh.message.clone())
             };
             let lang = lang();
 
@@ -841,10 +818,10 @@ fn draw_window(ui: &Ui) {
                 }
                 if let Some(url) = &card.url {
                     ui.same_line();
-                    if ui.button("Open in browser") {
-                        if let Err(e) = shell::open_url(url) {
-                            set_message(format!("Could not open browser: {e}"), true);
-                        }
+                    if ui.button("Open in browser")
+                        && let Err(e) = shell::open_url(url)
+                    {
+                        set_message(format!("Could not open browser: {e}"), true);
                     }
                 }
                 if loading {
@@ -855,17 +832,16 @@ fn draw_window(ui: &Ui) {
                 ui.text_colored(MUTED, "Loading...");
             }
 
-            if let Some((text, err, at)) = &message {
-                if at.elapsed() < Duration::from_secs(6) {
-                    ui.text_colored(if *err { RED } else { GREEN }, text);
-                }
+            if let Some((text, err, at)) = &message
+                && at.elapsed() < Duration::from_secs(6)
+            {
+                ui.text_colored(if *err { RED } else { GREEN }, text);
             }
             ui.separator();
 
             if let Some(card) = &card {
                 let v = focused(card);
-                let ident = format!("QUAGORIOUS_CARD_{}_{}_{}", card.id, card.generation, v.key);
-                match get_texture_or_create_from_memory(&ident, &v.preview_png) {
+                match get_texture_or_create_from_memory(&v.preview_id, &v.preview_png) {
                     Some(tex) => {
                         let avail = ui.content_region_avail()[0].max(100.0);
                         let [w, h] = v.preview_size;
@@ -913,10 +889,10 @@ fn draw_options(ui: &Ui) {
     let mut relocale = false;
     {
         let mut s = lock(&SETTINGS);
-        let mut idx = if s.locale == "en" { 1 } else { 0 };
+        let mut idx = s.locale as usize;
         ui.set_next_item_width(160.0);
         if ui.combo_simple_string("Card language", &mut idx, &["Deutsch", "English"]) {
-            s.locale = if idx == 1 { "en".into() } else { "de".into() };
+            s.locale = if idx == 1 { Lang::En } else { Lang::De };
             changed = true;
             relocale = true;
         }

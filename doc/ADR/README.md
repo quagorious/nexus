@@ -84,9 +84,9 @@ refreshed by whichever needs it first (`ensure_session`).
 
 | File | Content |
 |---|---|
-| `settings.json` | Subtoken + expiry, account, language, auto-open / auto-copy / notify |
+| `settings.json` | Subtoken, language, auto-open / auto-copy / notify |
 | `tokens.json` | Try id → share token, newest 2000 |
-| `gw2_specs.json` | Raw GW2 specializations + professions, refreshed after 14 days |
+| `gw2_specs.json` | Spec/profession name → profession + icon URL (from the GW2 API), refreshed after 14 days |
 | `icons/<Spec>.png` | Spec icons |
 | `bosses/<bossId>.png` | Boss artwork |
 

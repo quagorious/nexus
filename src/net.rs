@@ -53,6 +53,8 @@ pub struct Session {
 // Agents
 // ---------------------------------------------------------------------------
 
+/// Same setup as ureq's default (ring + webpki roots); only needed because
+/// `CapturingTls` has to wrap a config of its own.
 fn tls_config() -> Arc<rustls::ClientConfig> {
     static CFG: LazyLock<Arc<rustls::ClientConfig>> = LazyLock::new(|| {
         let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
@@ -82,9 +84,7 @@ impl ureq::TlsConnector for CapturingTls {
         io: Box<dyn ureq::ReadWrite>,
     ) -> Result<Box<dyn ureq::ReadWrite>, ureq::Error> {
         if let Some(clone) = io.socket().and_then(|s| s.try_clone().ok()) {
-            if let Ok(mut slot) = SSE_SOCKET.lock() {
-                *slot = Some(clone);
-            }
+            *crate::lock(&SSE_SOCKET) = Some(clone);
         }
         ureq::TlsConnector::connect(&self.0, dns_name, io)
     }
@@ -92,17 +92,14 @@ impl ureq::TlsConnector for CapturingTls {
 
 /// Closes the live connection (if any); the SSE reader then errors out.
 pub fn shutdown_live_socket() {
-    if let Ok(mut slot) = SSE_SOCKET.lock() {
-        if let Some(s) = slot.take() {
-            let _ = s.shutdown(Shutdown::Both);
-        }
+    if let Some(s) = crate::lock(&SSE_SOCKET).take() {
+        let _ = s.shutdown(Shutdown::Both);
     }
 }
 
 fn agent() -> &'static ureq::Agent {
     static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
         ureq::AgentBuilder::new()
-            .tls_config(tls_config())
             .timeout_connect(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("quagorious-nexus/", env!("CARGO_PKG_VERSION")))
@@ -158,8 +155,8 @@ fn json<T: serde::de::DeserializeOwned>(r: Result<ureq::Response, ureq::Error>) 
 // Endpoints
 // ---------------------------------------------------------------------------
 
-/// Step 1: account-only subtoken from a full API key. Returns (subtoken, expire).
-pub fn create_subtoken(api_key: &str) -> NetResult<(String, String)> {
+/// Step 1: account-only subtoken (valid one year) from a full API key.
+pub fn create_subtoken(api_key: &str) -> NetResult<String> {
     #[derive(Deserialize)]
     struct R {
         subtoken: String,
@@ -175,7 +172,7 @@ pub fn create_subtoken(api_key: &str) -> NetResult<(String, String)> {
             .set("Authorization", &format!("Bearer {}", api_key.trim()))
             .call(),
     )?;
-    Ok((r.subtoken, expire))
+    Ok(r.subtoken)
 }
 
 /// Step 2: subtoken → 24h module session.
@@ -253,10 +250,8 @@ pub fn listen(
         let line = line.map_err(|e| NetError::Other(format!("live stream: {e}")))?;
         if line.is_empty() {
             // Dispatch.
-            if !ev.data.is_empty() || !ev.event.is_empty() {
-                if !on_event(std::mem::take(&mut ev)) {
-                    return Ok(());
-                }
+            if (!ev.data.is_empty() || !ev.event.is_empty()) && !on_event(std::mem::take(&mut ev)) {
+                return Ok(());
             }
             continue;
         }
@@ -291,24 +286,19 @@ pub fn full_encounter(id: u64, share_token: &str) -> NetResult<quagorious_card::
     )
 }
 
-/// GW2 `/v2/specializations?ids=all` and `/v2/professions?ids=all`, raw.
-pub fn gw2_specs_raw() -> NetResult<(String, String)> {
-    let get = |path: &str| -> NetResult<String> {
-        agent()
-            .get(&format!("{GW2_API}{path}"))
-            .query("ids", "all")
-            .call()
-            .map_err(map_err)?
-            .into_string()
-            .map_err(|e| NetError::Other(e.to_string()))
-    };
-    Ok((get("/v2/specializations")?, get("/v2/professions")?))
+/// A whole GW2 API collection, e.g. `/v2/specializations?ids=all`.
+pub fn gw2_all<T: serde::de::DeserializeOwned>(path: &str) -> NetResult<Vec<T>> {
+    json(agent().get(&format!("{GW2_API}{path}")).query("ids", "all").call())
 }
 
+/// Downloads a small file (icons, boss artwork); anything over 1 MB is an error.
 pub fn fetch_bytes(url: &str) -> NetResult<Vec<u8>> {
+    const LIMIT: u64 = 1 << 20;
     let resp = agent().get(url).call().map_err(map_err)?;
     let mut buf = Vec::new();
-    resp.into_reader().take(1 << 20).read_to_end(&mut buf)
-        .map_err(|e| NetError::Other(e.to_string()))?;
+    resp.into_reader().take(LIMIT + 1).read_to_end(&mut buf).map_err(|e| NetError::Other(e.to_string()))?;
+    if buf.len() as u64 > LIMIT {
+        return Err(NetError::Other("file larger than 1 MB".into()));
+    }
     Ok(buf)
 }

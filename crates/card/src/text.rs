@@ -1,6 +1,9 @@
 //! Labels and number formatting for the two supported locales.
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Lang {
     #[default]
     De,
@@ -215,7 +218,7 @@ pub fn fmt_int(v: f64, lang: Lang) -> String {
     let sep = if lang == Lang::De { '.' } else { ',' };
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(sep);
         }
         out.push(c);
@@ -253,5 +256,54 @@ pub fn short_mechanic(text: &str) -> &str {
     match text.find(" (") {
         Some(i) if i > 0 => &text[..i],
         _ => text,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integers_get_locale_thousands_separators() {
+        assert_eq!(fmt_int(12345.4, Lang::De), "12.345");
+        assert_eq!(fmt_int(1234567.0, Lang::En), "1,234,567");
+        assert_eq!(fmt_int(999.6, Lang::En), "1,000");
+        assert_eq!(fmt_int(0.0, Lang::De), "0");
+        assert_eq!(fmt_int(-5.0, Lang::De), "0");
+    }
+
+    #[test]
+    fn hp_gets_two_decimals_below_one_percent() {
+        assert_eq!(fmt_hp(0.37, Lang::De), "0,37");
+        assert_eq!(fmt_hp(42.25, Lang::En), "42.2");
+        assert_eq!(fmt_hp(1.0, Lang::En), "1.0");
+    }
+
+    #[test]
+    fn durations_are_minutes_and_seconds() {
+        assert_eq!(fmt_duration(192_518), "3:12");
+        assert_eq!(fmt_duration(59_999), "0:59");
+        assert_eq!(fmt_duration(600_000), "10:00");
+    }
+
+    #[test]
+    fn mechanic_text_loses_its_parenthesis() {
+        assert_eq!(short_mechanic("Giftwolke (in grünem Bodengift gestanden)"), "Giftwolke");
+        assert_eq!(short_mechanic("Giftwolke"), "Giftwolke");
+        assert_eq!(short_mechanic(" (odd)"), " (odd)");
+    }
+
+    #[test]
+    fn downs_and_deaths_skip_zero_counts() {
+        assert_eq!(Lang::De.downs_deaths(6, 1), "1 Tod, 6 Downs");
+        assert_eq!(Lang::En.downs_deaths(1, 0), "1 down");
+        assert_eq!(Lang::En.downs_deaths(0, 0), "no downs, no deaths");
+    }
+
+    #[test]
+    fn lang_round_trips_through_settings_json() {
+        assert_eq!(serde_json::to_string(&Lang::En).unwrap(), "\"en\"");
+        assert_eq!(serde_json::from_str::<Lang>("\"de\"").unwrap(), Lang::De);
+        assert_eq!(Lang::from_code(Lang::En.code()), Lang::En);
     }
 }

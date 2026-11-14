@@ -137,7 +137,9 @@ pub struct RenderedCard {
 
 // --- palette --------------------------------------------------------------
 type Rgba = [u8; 4];
-const BG: Rgba = [24, 22, 30, 255];
+/// Card background, for consumers that have to flatten the rounded corners.
+pub const MATTE: [u8; 3] = [24, 22, 30];
+const BG: Rgba = [MATTE[0], MATTE[1], MATTE[2], 255];
 const PANEL: Rgba = [36, 33, 44, 255];
 const TRACK: Rgba = [52, 48, 62, 255];
 const TEXT: Rgba = [240, 238, 245, 255];
@@ -353,15 +355,16 @@ fn squad_dps(p: &mut Painter, inp: &CardInput, full: &FullEncounter, mut y: f32)
         return y;
     }
     players.sort_by(|a, b| b.target_dps.total_cmp(&a.target_dps));
-    players.truncate(12);
 
     let me = inp.me();
-    let rank = me.map(|me| {
+    let rank = me.and_then(|me| {
         let dps_only = me.role == "DPS";
         let pool: Vec<&&Player> = players.iter().filter(|p| !dps_only || p.role == "DPS").collect();
-        let pos = pool.iter().position(|p| p.account == me.account).unwrap_or(0) + 1;
-        lang.rank(pos, pool.len(), dps_only)
+        let pos = pool.iter().position(|p| p.account == me.account)? + 1;
+        Some(lang.rank(pos, pool.len(), dps_only))
     });
+    // Only the bars are capped; the rank above counts the whole squad.
+    players.truncate(12);
     caption(p, y, lang.squad_dps(), rank.as_deref().unwrap_or(""), MUTED);
     y += 22.0;
 
@@ -418,8 +421,8 @@ fn timeline(p: &mut Painter, inp: &CardInput, full: &FullEncounter, mut y: f32) 
         let (x0, x1) = (tx(ph.start), tx(ph.end));
         let w = (x1 - x0 - 1.0).max(1.0);
         p.rrect(x0 + 0.5, y + 1.0, w, bar_h - 2.0, 3.0, if i % 2 == 0 { PHASE_A } else { PHASE_B });
-        if p.measure(10.0, false, &ph.name) <= w - 6.0 {
-            let tw = p.measure(10.0, false, &ph.name);
+        let tw = p.measure(10.0, false, &ph.name);
+        if tw <= w - 6.0 {
             p.text(x0 + (w - tw) / 2.0, y + 5.5, 10.0, false, TEXT, &ph.name);
         } else {
             p.text_fit(x0 + 3.0, y + 5.5, 10.0, false, TEXT, &ph.name, w - 4.0);
@@ -529,7 +532,7 @@ fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &s
                     None => by_cause.push((g.cause.clone(), g.active_ms)),
                 }
             }
-            by_cause.sort_by(|a, b| b.1.cmp(&a.1));
+            by_cause.sort_by_key(|(_, ms)| std::cmp::Reverse(*ms));
             let parts: Vec<String> = by_cause
                 .iter()
                 .filter(|(_, ms)| *ms >= 500)
@@ -602,7 +605,8 @@ fn mistakes(p: &mut Painter, inp: &CardInput, mut y: f32, fight: bool) -> f32 {
     } else {
         (lang.downs_deaths(downs, deaths), ORANGE)
     };
-    ry += p.wrapped(right, ry, 12.5, dd_col, &dd, col_w) - 18.75 + 19.0;
+    // Wrapped lines are 18.75 high; the rows on the left step by 19.
+    ry += p.wrapped(right, ry, 12.5, dd_col, &dd, col_w) + 0.25;
     ly.max(ry) + 12.0
 }
 
@@ -733,6 +737,7 @@ impl Painter<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn gradient_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, a: Rgba, b: Rgba) {
         let s = self.s;
         let Some(pm) = self.pm.as_mut() else { return };
@@ -933,6 +938,7 @@ impl Painter<'_> {
     }
 
     /// Like `text`, but truncates with an ellipsis to fit `max_w`.
+    #[allow(clippy::too_many_arguments)]
     fn text_fit(&mut self, x: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str, max_w: f32) {
         if self.measure(size, bold, text) <= max_w {
             self.text(x, y, size, bold, c, text);
