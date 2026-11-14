@@ -199,6 +199,10 @@ impl Lang {
             (Lang::En, _) => format!("Ø {p} % on {players} players"),
         }
     }
+    /// Marks a player left out of the boon average (out of range most of the fight).
+    pub fn not_in_avg(self) -> &'static str {
+        if self.de() { "nicht im Ø" } else { "not in avg." }
+    }
     pub fn you(self) -> &'static str {
         if self.de() { "du" } else { "you" }
     }

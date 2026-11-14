@@ -480,25 +480,40 @@ fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &s
         })
     };
     let provided_by_me = |pl: &&Player| pl.boon_gaps.get(boon).and_then(|g| g.provider.as_deref()) == Some(me);
-    let mut rows: Vec<&Player> = full.players.iter().filter(provided_by_me).filter(|pl| pl.account != me).collect();
+    // Out of range for at least half the fight: away on purpose (kiter,
+    // other side of the arena), not a gap in your boon. Listed, not averaged.
+    let far_away = |pl: &Player| -> bool {
+        let oor: u64 = pl
+            .boon_gaps
+            .get(boon)
+            .map(|g| g.gaps.iter().filter(|x| x.cause == "outOfRange").map(|x| x.active_ms).sum())
+            .unwrap_or(0);
+        oor as f64 >= total * 0.5
+    };
+    let others: Vec<&Player> = full.players.iter().filter(provided_by_me).filter(|pl| pl.account != me).collect();
+    let (mut rows, mut away): (Vec<&Player>, Vec<&Player>) = others.into_iter().partition(|pl| !far_away(pl));
     rows.sort_by(|a, b| uptime(a).total_cmp(&uptime(b)));
-    let others = rows.len();
-    let avg = if others > 0 { rows.iter().map(|pl| uptime(pl)).sum::<f64>() / others as f64 } else { 0.0 };
+    let counted = rows.len();
+    let avg = if counted > 0 { rows.iter().map(|pl| uptime(pl)).sum::<f64>() / counted as f64 } else { 0.0 };
+    away.sort_by(|a, b| uptime(a).total_cmp(&uptime(b)));
+    rows.extend(away.iter().copied());
     if let Some(mine) = full.players.iter().filter(provided_by_me).find(|pl| pl.account == me) {
         rows.push(mine);
     }
 
-    caption(p, y, &lang.your_boon(boon), &lang.boon_avg(avg, others), MUTED);
+    caption(p, y, &lang.your_boon(boon), &lang.boon_avg(avg, counted), MUTED);
     y += 24.0;
     let name_w = 150.0;
     let bar_x = PAD + 22.0 + name_w + 8.0;
     let bar_w = WIDTH - PAD - 52.0 - bar_x;
     for pl in rows {
         let up = uptime(pl);
-        let col = uptime_color(up);
+        let excluded = pl.account != me && far_away(pl);
+        let col = if excluded { DIM } else { uptime_color(up) };
         p.spec_icon(inp.specs, &pl.profession, PAD, y + 1.0, 16.0);
         let name = if pl.account == me { lang.you().to_string() } else { pl.display_name().to_string() };
-        p.text_fit(PAD + 22.0, y, 13.0, pl.account == me, TEXT, &name, name_w);
+        let name_col = if excluded { MUTED } else { TEXT };
+        p.text_fit(PAD + 22.0, y, 13.0, pl.account == me, name_col, &name, name_w);
         p.rrect(bar_x, y + 6.0, bar_w, 7.0, 3.5, TRACK);
         p.rrect(bar_x, y + 6.0, bar_w * (up / 100.0).clamp(0.0, 1.0) as f32, 7.0, 3.5, col);
         p.text_right(WIDTH - PAD, y, 12.5, true, col, &format!("{} %", fmt_dec(up, 1, lang)));
@@ -521,7 +536,10 @@ fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &s
                 .map(|(c, ms)| format!("{} {} s", lang.gap_cause(c), fmt_dec(*ms as f64 / 1000.0, 1, lang)))
                 .collect();
             if !parts.is_empty() {
-                let line = format!("{}: {}", lang.gaps(), parts.join(" · "));
+                let mut line = format!("{}: {}", lang.gaps(), parts.join(" · "));
+                if excluded {
+                    line = format!("{line} · {}", lang.not_in_avg());
+                }
                 p.text_fit(PAD + 22.0, y - 3.0, 11.0, false, DIM, &line, INNER - 22.0);
                 y += 17.0;
             }
