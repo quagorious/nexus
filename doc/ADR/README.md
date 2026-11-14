@@ -24,18 +24,18 @@ what we decided, and what follows from it. All of them were written on
 ## How the code works
 
 ```
-                  ┌──────────────── GW2 process (Wine/Proton) ────────────────┐
-                  │  Nexus ── loads ──▶ quagorious_share.dll                    │
-                  │                                                             │
+                  ┌──────────────── GW2 process (Wine/Proton) ────────────────────┐
+                  │  Nexus ── loads ──▶ quagorious_share.dll                     │
+                  │                                                               │
  quagorious.gg    │   live thread ──SSE──▶ events ──Cmd──▶ worker thread        │
- live.quagorious  │        ▲                                  │  HTTP (ureq)    │
- api.guildwars2   │        └──── session (shared) ◀───────────┤  render cards   │
-                  │                                           ▼                 │
+ live.quagorious  │        ▲                                  │  HTTP (ureq)      │
+ api.guildwars2   │        └──── session (shared) ◀───────────┤  render cards    │
+                  │                                           ▼                   │
                   │   render thread (imgui) ◀── SHARED state ── CardView         │
-                  │        │ copy                                               │
-                  │        ▼                                                    │
+                  │        │ copy                                                 │
+                  │        ▼                                                      │
                   │   Win32 clipboard (PNG + CF_DIB) ── Wine ──▶ Linux clipboard │
-                  └─────────────────────────────────────────────────────────────┘
+                  └───────────────────────────────────────────────────────────────┘
 ```
 
 Three threads, connected by one command channel and a few mutex-guarded
@@ -90,21 +90,22 @@ refreshed by whichever needs it first (`ensure_session`).
 | `icons/<Spec>.png` | Spec icons |
 | `bosses/<bossId>.png` | Boss artwork |
 
-## Where we are now (2026-11-14)
+## Where we are now (2026-11-15)
 
 **Working and verified in game:** connecting with an API key; the live
 feed; new tries arriving about a second after the upload; the window with
 try picker and card carousel; copying the focused card; the alacrity card
-on a support wipe; the browser link; the fixed status line.
+on a support wipe; the browser link; the fixed status line; pasting the
+copied card into Discord on Linux (Wine's clipboard bridge); the Nexus
+notification on a new try.
 
 **Verified only on rendered samples (host preview):** all three variants on
 six real tries (kills, wipes, CM, alac-heal, alac-DPS), English labels,
 the subgroup-based boon card.
 
 **Not verified yet:**
-- Pasting the image into Discord on the Linux side (Wine's clipboard bridge).
-- The notification text in game.
 - A quickness card (no quick-support sample yet).
+- The release workflow on GitHub (see [0011](0011-release-builds-on-github.md)).
 
 **Known limitations:**
 - The extra cards and the boss image only exist for tries whose share token

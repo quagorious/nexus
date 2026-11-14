@@ -31,4 +31,4 @@ within Latin-1, because the game font has no other characters.
 
 - After a boss, the card is ready to paste, with a short confirmation and
   nothing to close.
-- The notification hasn't been seen in game yet.
+- The notification works in game (verified 2026-11-15).

@@ -1,6 +1,6 @@
 # 0005. Put cards on the Windows clipboard as PNG + DIB
 
-- Status: Accepted (Linux paste not yet confirmed)
+- Status: Accepted (verified 2026-11-15)
 - Date: 2026-11-14
 
 ## Context
@@ -23,6 +23,7 @@ Linux clipboard as an image that Discord accepts.
 ## Consequences
 
 - Native Windows apps and Wine-bridged Linux apps both get an image.
-- Pasting into Discord on Linux hasn't been confirmed yet. If it fails,
-  check `xclip -selection clipboard -t TARGETS -o` while a card is on the
+- Pasting into Discord on Linux works (verified in game on 2026-11-15).
+  If it breaks after a Wine/Proton update, check
+  `xclip -selection clipboard -t TARGETS -o` while a card is on the
   clipboard.
