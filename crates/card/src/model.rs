@@ -198,6 +198,9 @@ pub struct Player {
     pub role: String,
     #[serde(default, deserialize_with = "nd")]
     pub target_dps: f64,
+    /// Party (1–15); boons like alacrity/quickness go to your own party.
+    #[serde(default, deserialize_with = "nd")]
+    pub subgroup: u32,
     /// Before the loss, on a wipe.
     #[serde(default, deserialize_with = "nd")]
     pub downs: u32,

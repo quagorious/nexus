@@ -468,7 +468,7 @@ fn timeline(p: &mut Painter, inp: &CardInput, full: &FullEncounter, mut y: f32) 
     y
 }
 
-/// Uptime of `boon` on every player you were the provider for.
+/// Uptime of `boon` on everyone in your subgroup (your party), then you.
 fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &str, mut y: f32) -> f32 {
     let lang = inp.lang;
     let me = inp.enc.account.as_str();
@@ -479,9 +479,9 @@ fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &s
             (100.0 - gap / total * 100.0).clamp(0.0, 100.0)
         })
     };
-    let provided_by_me = |pl: &&Player| pl.boon_gaps.get(boon).and_then(|g| g.provider.as_deref()) == Some(me);
-    // Out of range for at least half the fight: away on purpose (kiter,
-    // other side of the arena), not a gap in your boon. Listed, not averaged.
+    // A party member out of range for at least half the fight is away on
+    // purpose (kiter, other side of the arena), not a gap in your boon:
+    // listed, but not averaged.
     let far_away = |pl: &Player| -> bool {
         let oor: u64 = pl
             .boon_gaps
@@ -490,14 +490,15 @@ fn boon_players(p: &mut Painter, inp: &CardInput, full: &FullEncounter, boon: &s
             .unwrap_or(0);
         oor as f64 >= total * 0.5
     };
-    let others: Vec<&Player> = full.players.iter().filter(provided_by_me).filter(|pl| pl.account != me).collect();
+    // Your party: same subgroup, same boons.
+    let others = crate::party(inp.enc, full);
     let (mut rows, mut away): (Vec<&Player>, Vec<&Player>) = others.into_iter().partition(|pl| !far_away(pl));
     rows.sort_by(|a, b| uptime(a).total_cmp(&uptime(b)));
     let counted = rows.len();
     let avg = if counted > 0 { rows.iter().map(|pl| uptime(pl)).sum::<f64>() / counted as f64 } else { 0.0 };
     away.sort_by(|a, b| uptime(a).total_cmp(&uptime(b)));
     rows.extend(away.iter().copied());
-    if let Some(mine) = full.players.iter().filter(provided_by_me).find(|pl| pl.account == me) {
+    if let Some(mine) = inp.me() {
         rows.push(mine);
     }
 

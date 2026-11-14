@@ -19,9 +19,22 @@ pub fn variants(enc: &Encounter, full: Option<&FullEncounter>) -> Vec<Variant> {
     if !full.encounter.phases.is_empty() || (!enc.success && full.encounter.lost_at_ms.is_some()) {
         out.push(Variant::Fight);
     }
-    // Boons you were the provider of for at least one other player.
+    out.extend(provided_boons(enc, full).into_iter().map(Variant::Boon));
+    out
+}
+
+/// Boons you supplied to your party: from your role (aHeal/aDPS → alacrity,
+/// qHeal/qDPS → quickness), else wherever the analysis names you as the
+/// provider for someone in your subgroup.
+pub fn provided_boons(enc: &Encounter, full: &FullEncounter) -> Vec<String> {
+    let role = full.players.iter().find(|p| p.account == enc.account).map(|p| p.role.as_str()).unwrap_or(&enc.role);
+    match role {
+        "aHeal" | "aDPS" => return vec!["alacrity".into()],
+        "qHeal" | "qDPS" => return vec!["quickness".into()],
+        _ => {}
+    }
     let mut boons: Vec<(String, usize)> = Vec::new();
-    for pl in full.players.iter().filter(|p| p.account != enc.account) {
+    for pl in party(enc, full) {
         for (boon, info) in &pl.boon_gaps {
             if info.provider.as_deref() == Some(enc.account.as_str()) {
                 match boons.iter_mut().find(|(b, _)| b == boon) {
@@ -32,8 +45,13 @@ pub fn variants(enc: &Encounter, full: Option<&FullEncounter>) -> Vec<Variant> {
         }
     }
     boons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    out.extend(boons.into_iter().map(|(b, _)| Variant::Boon(b)));
-    out
+    boons.into_iter().map(|(b, _)| b).collect()
+}
+
+/// The other players in your subgroup (your party, max. 4 others).
+pub fn party<'a>(enc: &Encounter, full: &'a FullEncounter) -> Vec<&'a model::Player> {
+    let Some(me) = full.players.iter().find(|p| p.account == enc.account) else { return Vec::new() };
+    full.players.iter().filter(|p| p.account != me.account && p.subgroup == me.subgroup).collect()
 }
 
 /// Today's tries at the same boss + mode as `current`, oldest first.

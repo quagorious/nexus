@@ -14,7 +14,7 @@ the one that gets copied, and the window remembers your choice for later tries.
 |---|---|---|
 | **Overview** | Kill time / wipe %, your DPS against your earlier tries, squad DPS, mistakes and contributions, today's tries at this boss | always (squad DPS needs the share token) |
 | **Fight timeline** | Phases, where the try was lost, who went down first, deaths/downs before and after, squad DPS | share token + phases or a wipe |
-| **Your boon** (e.g. Alacrity) | Uptime of the boon you provided, per player, with the main gap causes | share token + you provided a boon |
+| **Your boon** (e.g. Alacrity) | Uptime of the boon you provide, for each player in your subgroup (your party), with the main gap causes | share token + alac/quick role (or named as provider in your party) |
 
 The header shows the boss artwork when the boss id is known.
 
