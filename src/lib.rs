@@ -512,7 +512,8 @@ fn copy_image(v: &VariantView) -> bool {
     }
 }
 
-/// e.g. "Quagorious: KILL Faultierion 3:12 – Karte kopiert".
+/// e.g. "Quagorious: KILL Faultierion 3:12 · Karte kopiert". Only Latin-1
+/// characters: the in-game font has nothing beyond that.
 /// `copied`: None = auto-copy off, Some(ok) = copy attempted.
 fn new_card_alert(enc: &Encounter, v: &VariantView, copied: Option<bool>, lang: Lang) -> String {
     use quagorious_card::text::{fmt_duration, fmt_hp};
@@ -526,10 +527,10 @@ fn new_card_alert(enc: &Encounter, v: &VariantView, copied: Option<bool>, lang: 
         (Some(true), Lang::En) => format!("card \"{}\" copied", v.label),
         (Some(false), Lang::De) => "Kopieren fehlgeschlagen".to_string(),
         (Some(false), Lang::En) => "copy failed".to_string(),
-        (None, Lang::De) => "neue Karte, ALT+SHIFT+K kopiert".to_string(),
-        (None, Lang::En) => "new card, ALT+SHIFT+K to copy".to_string(),
+        (None, Lang::De) => "neue Karte, mit dem Kopier-Keybind kopieren".to_string(),
+        (None, Lang::En) => "new card, press the copy keybind".to_string(),
     };
-    format!("Quagorious: {result} – {what}")
+    format!("Quagorious: {result} · {what}")
 }
 
 fn copy_text(card: &CardView) {
@@ -744,7 +745,7 @@ fn status_line(ui: &Ui, sh: &Shared) {
                 Live::Off => (MUTED, "live feed off".to_string()),
                 Live::Retrying(r) => (YELLOW, format!("live feed lost ({r}), retrying")),
             };
-            ui.text_colored(col, format!("● {account} · {live}"));
+            ui.text_colored(col, format!("{account} · {live}"));
         }
     }
 }
@@ -927,7 +928,8 @@ fn draw_options(ui: &Ui) {
         send(Cmd::Relocale);
     }
     ui.spacing();
-    ui.text_disabled("Keybinds (Nexus > Keybinds): ALT+SHIFT+L toggle window, ALT+SHIFT+K copy card.");
+    ui.text_disabled("Keybinds are set above / in Nexus > Keybinds:");
+    ui.text_disabled("QUAGORIOUS_TOGGLE opens the window, QUAGORIOUS_COPY copies the focused card.");
     if ui.button("Open window") {
         WINDOW_OPEN.store(true, Ordering::Relaxed);
     }

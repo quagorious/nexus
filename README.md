@@ -28,7 +28,7 @@ The header shows the boss artwork when the boss id is known.
    stores only that, in `addons/Quagorious/settings.json`. The key itself is
    not saved.
 3. Play. Options decide what happens when a new try arrives: copy the card to
-   the clipboard, show a Nexus notification ("KILL Faultierion 3:12 – Karte
+   the clipboard, show a Nexus notification ("KILL Faultierion 3:12 · Karte
    kopiert"), and/or open the window. Card language is Deutsch or English.
 
 | Action | Default keybind |
