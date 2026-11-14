@@ -108,6 +108,13 @@ Publishing a GitHub release builds the DLL on a Windows runner and attaches
 
 To verify a download: `sha256sum -c checksums.txt` in the folder with both files.
 
+**Auto-updates:** the addon declares this repository as its Nexus update
+source. Nexus checks the GitHub releases, takes the highest `v<version>` tag
+that has a `.dll` attached, and updates the addon when that version is newer
+than the installed one. Pre-releases are only used if they're enabled for the
+addon in Nexus. So publishing a release with a higher version is all it takes
+to update every installation.
+
 ### Previewing the card without the game
 
 The renderer lives in `crates/card` with no Windows dependencies:

@@ -52,8 +52,11 @@ nexus::export! {
     load,
     unload,
     flags: AddonFlags::None,
-    provider: UpdateProvider::None,
-    update_link: "",
+    // Nexus checks api.github.com/repos/quagorious/nexus/releases, takes the
+    // highest `v<version>` tag that has a .dll asset and updates when it's
+    // newer than the version compiled in from Cargo.toml.
+    provider: UpdateProvider::GitHub,
+    update_link: "https://github.com/quagorious/nexus",
     log_filter: "info"
 }
 

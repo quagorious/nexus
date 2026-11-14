@@ -32,7 +32,27 @@ actual releases, not on every push.
 - A release is: bump the version, commit and push, then `gh release create
   v<version> --generate-notes`.
 - Users can check a download with `sha256sum -c checksums.txt`.
-- Not done yet: Nexus could update the addon automatically from GitHub
-  releases (`UpdateProvider::GitHub` with the repository URL in
-  `nexus::export!`). The release assets this workflow produces are the
-  prerequisite for that.
+- Nexus updates the addon from these releases automatically (see below).
+
+## Auto-updates through Nexus
+
+The addon declares `provider: UpdateProvider::GitHub` and
+`update_link: "https://github.com/quagorious/nexus"` in `nexus::export!`.
+How Nexus uses that (read from its source, `CAddon::CheckUpdateViaGitHub`):
+
+- It calls `GET api.github.com/repos/quagorious/nexus/releases`
+  unauthenticated, so the repository has to stay public.
+- For each release it parses `tag_name` with `v?\d+\.\d+(\.\d+){0,2}`, so
+  `v0.2.0` works but `v0.2.0-beta` is skipped. It skips pre-releases unless
+  they're allowed for the addon. It takes the highest version that has an
+  asset ending in `.dll` (`checksums.txt` is ignored).
+- It updates when that version is newer than the one in the DLL. nexus-rs
+  compiles the `Cargo.toml` version in, with revision `-1` for stable
+  versions, which Nexus reads as 65535. So a release with the **same**
+  version (revision 0) counts as older: no re-download loop. Only a higher
+  version triggers an update.
+- A release whose workflow is still running has no `.dll` yet and is simply
+  skipped until the upload finishes.
+
+Installations from before this change (no update link) need one manual
+update to a build that has it.
