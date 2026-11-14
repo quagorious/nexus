@@ -91,6 +91,23 @@ cargo xwin build --release --target x86_64-pc-windows-msvc
 # → target/x86_64-pc-windows-msvc/release/quagorious_share.dll
 ```
 
+### Releases (GitHub Actions)
+
+Publishing a GitHub release builds the DLL on a Windows runner and attaches
+`quagorious_share.dll` and `checksums.txt` (SHA-256) to it
+(`.github/workflows/release.yml`). Pushes and plain tags don't trigger a build.
+
+1. Bump `version` in `Cargo.toml` (Nexus shows this version), commit, push.
+2. Publish a release whose tag is `v<version>`:
+
+   ```sh
+   gh release create v0.2.0 --generate-notes
+   ```
+
+   A tag that doesn't match `Cargo.toml` fails the build before compiling.
+
+To verify a download: `sha256sum -c checksums.txt` in the folder with both files.
+
 ### Previewing the card without the game
 
 The renderer lives in `crates/card` with no Windows dependencies:

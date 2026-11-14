@@ -19,6 +19,7 @@ what we decided, and what follows from it. All of them were written on
 | [0008](0008-boon-card-uses-subgroup.md) | The boon card lists your subgroup | Accepted (supersedes an earlier approach) |
 | [0009](0009-notify-instead-of-opening-window.md) | Notify and auto-copy instead of opening the window | Accepted |
 | [0010](0010-spec-icons-and-boss-images.md) | Spec icons from the GW2 API, boss artwork from the site's table | Accepted |
+| [0011](0011-release-builds-on-github.md) | Build release DLLs on GitHub when a release is published | Accepted |
 
 ## How the code works
 

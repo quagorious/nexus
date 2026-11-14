@@ -1,0 +1,66 @@
+# Builds the addon DLL when a GitHub release is published and attaches it,
+# together with checksums.txt (SHA-256), to that release.
+#
+# Release flow: bump `version` in Cargo.toml, commit, then publish a release
+# with the tag `v<version>` (e.g. v0.2.0), via the GitHub UI or
+# `gh release create v0.2.0 --generate-notes`.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # upload release assets
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows DLL
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag '$TAG' does not match Cargo.toml version '$version' (expected 'v$version')."
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked --target "$TARGET" -p quagorious_share
+
+      - name: Test card crate
+        run: cargo test --release --locked -p quagorious_card
+
+      - name: Collect DLL and checksums
+        run: |
+          mkdir dist
+          cp "target/$TARGET/release/quagorious_share.dll" dist/
+          cd dist
+          sha256sum quagorious_share.dll > checksums.txt
+          cat checksums.txt
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/quagorious_share.dll dist/checksums.txt --clobber
