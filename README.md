@@ -178,7 +178,8 @@ trigger a build.
 
    A tag that doesn't match `Cargo.toml` fails the build before compiling.
 3. Optionally edit the generated release notes on GitHub afterwards. They
-   start with the AI notice from `.github/AI_NOTICE.md`; keep it there.
+   start with `.github/AI_NOTICE.md` (the AI notice and the setup links to
+   the docs); keep it there.
 
 Don't create the release by hand first: it must not exist before its DLL is
 attached, or Nexus clients that check in between cache "no update".
