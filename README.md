@@ -1,5 +1,20 @@
 # Quagorious for Nexus
 
+> [!WARNING]
+> ## 🤖 This project is fully AI-written
+>
+> **Every part of this addon (the Rust code, the card renderer, the build and
+> release setup, the docs and this notice) was written by an AI coding agent
+> (Anthropic's Claude, through Claude Code).** This is agentic coding, not
+> AI-assisted coding: the agent wrote, ran and fixed the code itself.
+>
+> The human maintainer chose what to build, made the decisions, reviewed the
+> results and tested the addon in game. They did not write the code by hand.
+>
+> If you'd rather not use or support AI-generated software, this addon isn't
+> for you, and that's a fair choice. We'd rather tell you upfront.
+> Every release page carries the same notice.
+
 A [Nexus](https://github.com/RaidcoreGG/Nexus) addon for Guild Wars 2, written in Rust.
 It listens to the [quagorious.gg](https://quagorious.gg) live feed. When one of
 your encounter logs is analysed, it renders share cards for that try and puts
@@ -112,7 +127,8 @@ trigger a build.
    ```
 
    A tag that doesn't match `Cargo.toml` fails the build before compiling.
-3. Optionally edit the generated release notes on GitHub afterwards.
+3. Optionally edit the generated release notes on GitHub afterwards. They
+   start with the AI notice from `.github/AI_NOTICE.md`; keep it there.
 
 Don't create the release by hand first: it must not exist before its DLL is
 attached, or Nexus clients that check in between cache "no update".

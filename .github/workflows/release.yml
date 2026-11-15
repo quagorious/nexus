@@ -69,6 +69,7 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" dist/quagorious_share.dll dist/checksums.txt --clobber
           else
+            # The AI notice goes on top; the generated notes are appended.
             gh release create "$TAG" dist/quagorious_share.dll dist/checksums.txt \
-              --title "$TAG" --generate-notes --verify-tag
+              --title "$TAG" --notes-file .github/AI_NOTICE.md --generate-notes --verify-tag
           fi
