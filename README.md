@@ -41,13 +41,13 @@ copied to the clipboard:
 
 | Overview | Fight timeline |
 |---|---|
-| ![Overview card, Harvest Temple CM wipe](doc/images/card-htcm-overview.png) | ![Fight timeline card, Harvest Temple CM wipe](doc/images/card-htcm-fight.png) |
+| ![Overview card, Harvest Temple CM wipe](docs/images/card-htcm-overview.png) | ![Fight timeline card, Harvest Temple CM wipe](docs/images/card-htcm-fight.png) |
 
 The boon card, when you provide quickness or alacrity to your party:
 
 | Quickness (quick-DPS Harbinger, Fraenir of Jormag kill) | Alacrity (alac-heal Scourge, Deimos wipe) |
 |---|---|
-| ![Quickness card](doc/images/card-fraenir-quickness.png) | ![Alacrity card](doc/images/card-deimos-alacrity.png) |
+| ![Quickness card](docs/images/card-fraenir-quickness.png) | ![Alacrity card](docs/images/card-deimos-alacrity.png) |
 
 In game: the window with the try picker, the card carousel and the copy
 buttons (showing the Overview and the Squad card), and the addon's page in
@@ -55,7 +55,7 @@ Nexus → Options.
 
 | Window | Window, Squad card | Options |
 |---|---|---|
-| ![Quagorious window in game](doc/images/ingame-window-overview.png) | ![Quagorious window showing the Squad card](doc/images/ingame-window-squad.png) | ![Nexus options page](doc/images/ingame-options.png) |
+| ![Quagorious window in game](docs/images/ingame-window-overview.png) | ![Quagorious window showing the Squad card](docs/images/ingame-window-squad.png) | ![Nexus options page](docs/images/ingame-options.png) |
 
 ## Squad card and window
 
@@ -73,14 +73,14 @@ details on hover (phase times, who went down, account names):
 - who went down when, the mistakes that came back in every try today, and
   the squad's mechanics in this try
 
-![Squad card, Harvest Temple CM wipe](doc/images/card-htcm-squad.webp)
+![Squad card, Harvest Temple CM wipe](docs/images/card-htcm-squad.webp)
 
 The Squad window in game:
 
-![Squad window in game](doc/images/ingame-squad-window.webp)
+![Squad window in game](docs/images/ingame-squad-window.webp)
 
 **Window text size** in Nexus → Options → Quagorious enlarges the text of
-both windows. See [ADR 0012](doc/ADR/0012-squad-panel-in-imgui.md).
+both windows. See [ADR 0012](docs/ADR/0012-squad-panel-in-imgui.md).
 
 ## Language
 
@@ -91,14 +91,22 @@ partly English in German mode.
 
 | Options | Window | Squad card |
 |---|---|---|
-| ![Options page in English](doc/images/ingame-options-en.png) | ![Window with the Alacrity card in English](doc/images/ingame-window-alacrity-en.png) | ![Squad card in English](doc/images/card-htcm-squad-en.webp) |
+| ![Options page in English](docs/images/ingame-options-en.png) | ![Window with the Alacrity card in English](docs/images/ingame-window-alacrity-en.png) | ![Squad card in English](docs/images/card-htcm-squad-en.webp) |
 
-![Squad window in English](doc/images/ingame-squad-window-en.webp)
+![Squad window in English](docs/images/ingame-squad-window-en.webp)
 
 ## Setup
 
-1. Build the DLL (below) and copy `quagorious_share.dll` into
-   `Guild Wars 2/addons/`. Load it from the Nexus addon list.
+**Full guide, from arcdps and the Quagorious Uploader to the addon:
+[English](docs/en/README.md) · [Deutsch](docs/de/README.md).** The addon only
+shows tries that already reached Quagorious, so the uploader (or uploading
+in the browser) has to be set up first.
+
+1. Download `quagorious_share.dll` from the
+   [latest release](https://github.com/quagorious/nexus/releases/latest)
+   (it isn't in the Nexus addon library) and copy it into
+   `Guild Wars 2/addons/`. Load it from the Nexus addon list. After that,
+   Nexus keeps it up to date from the GitHub releases.
 2. Go to **Nexus → Options → Quagorious**, paste a GW2 API key with the
    `account` permission, and click **Connect**.
    The addon exchanges the key for a 1-year, account-only **subtoken** and
@@ -213,6 +221,6 @@ shows what's on offer).
 - `src/lib.rs`: Nexus glue, worker and live threads, imgui window and options
 - `tools/probe.sh`, `tools/capture.sh`: dump API samples / record the live feed
 
-How it fits together, and why it's built this way: [doc/ADR](doc/ADR/README.md).
+How it fits together, and why it's built this way: [docs/ADR](docs/ADR/README.md).
 
 Fonts: Noto Sans (SIL OFL), embedded.
