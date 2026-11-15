@@ -1,6 +1,6 @@
 [package]
 name = "quagorious_share"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 authors = ["raba"]
 description = "Nexus addon: live Quagorious encounter cards, copied to the clipboard as an image"
