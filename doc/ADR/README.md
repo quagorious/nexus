@@ -95,7 +95,8 @@ refreshed by whichever needs it first (`ensure_session`).
 **Working and verified in game:** connecting with an API key; the live
 feed; new tries arriving about a second after the upload; the window with
 try picker and card carousel; copying the focused card; the alacrity card
-on a support wipe; the browser link; the fixed status line; pasting the
+on a support wipe; the quickness card on a quick-DPS kill (Fraenir of
+Jormag, Harbinger); the browser link; the fixed status line; pasting the
 copied card into Discord on Linux (Wine's clipboard bridge); the Nexus
 notification on a new try.
 
@@ -104,7 +105,6 @@ six real tries (kills, wipes, CM, alac-heal, alac-DPS), English labels,
 the subgroup-based boon card.
 
 **Not verified yet:**
-- A quickness card (no quick-support sample yet).
 - The tag-triggered release workflow (its release-triggered predecessor
   built v0.2.0) and a complete Nexus auto-update (see
   [0011](0011-release-builds-on-github.md)).

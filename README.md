@@ -27,6 +27,12 @@ they're copied to the clipboard:
 |---|---|---|
 | ![Overview card](doc/images/card-deimos-overview.png) | ![Fight timeline card](doc/images/card-deimos-fight.png) | ![Alacrity card](doc/images/card-deimos-alacrity.png) |
 
+And a kill as quick-DPS Harbinger (Fraenir of Jormag), copied in game:
+
+| Overview | Fight timeline | Your boon |
+|---|---|---|
+| ![Overview card, Fraenir kill](doc/images/card-fraenir-overview.png) | ![Fight timeline card, Fraenir kill](doc/images/card-fraenir-fight.png) | ![Quickness card](doc/images/card-fraenir-quickness.png) |
+
 In game: the window with the try picker, the card carousel and the copy
 buttons, and the addon's page in Nexus → Options.
 
