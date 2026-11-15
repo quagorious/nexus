@@ -1,6 +1,6 @@
 # Set up Quagorious and the uploader
 
-🇩🇪 [Deutsche Version](../de/setup-quagorious.md) · [← Overview](README.md) · Next: [Install the addon →](install-addon.md)
+[Deutsche Version](../de/setup-quagorious.md) · [← Overview](README.md) · Next: [Install the addon →](install-addon.md)
 
 Do this first. The addon only shows tries that are already on Quagorious,
 so logs have to get there somehow.

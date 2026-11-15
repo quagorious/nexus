@@ -1,6 +1,6 @@
 # Fehlersuche
 
-🇬🇧 [English version](../en/troubleshooting.md) · [← Übersicht](README.md)
+[English version](../en/troubleshooting.md) · [← Übersicht](README.md)
 
 Geh die Kette entlang: Schau zuerst, ob der Try auf **quagorious.gg**
 liegt. Wenn nicht, liegt das Problem vor dem Addon (arcdps oder Uploader).

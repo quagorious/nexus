@@ -1,6 +1,6 @@
 # How it works
 
-🇩🇪 [Deutsche Version](../de/how-it-works.md) · [← Overview](README.md)
+[Deutsche Version](../de/how-it-works.md) · [← Overview](README.md)
 
 ## Two separate connections
 

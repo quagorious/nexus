@@ -1,6 +1,6 @@
 # Das Addon benutzen
 
-🇬🇧 [English version](../en/using-the-addon.md) · [← Addon installieren](install-addon.md) · Mehr: [So funktioniert es](how-it-works.md)
+[English version](../en/using-the-addon.md) · [← Addon installieren](install-addon.md) · Mehr: [So funktioniert es](how-it-works.md)
 
 ## Was nach einem Boss passiert
 

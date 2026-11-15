@@ -1,6 +1,6 @@
 # Troubleshooting
 
-🇩🇪 [Deutsche Version](../de/troubleshooting.md) · [← Overview](README.md)
+[Deutsche Version](../de/troubleshooting.md) · [← Overview](README.md)
 
 Work along the chain: first check whether the try is on
 **quagorious.gg**. If it isn't, the problem is before the addon (arcdps or

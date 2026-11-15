@@ -1,6 +1,6 @@
 # Quagorious for Nexus
 
-🇩🇪 [Deutsche Version](../de/README.md)
+[Deutsche Version](../de/README.md)
 
 This addon shows your [Quagorious](https://quagorious.gg) results inside
 Guild Wars 2. A few seconds after a boss, your try shows up in game, and a

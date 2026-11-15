@@ -1,6 +1,6 @@
 # So funktioniert es
 
-🇬🇧 [English version](../en/how-it-works.md) · [← Übersicht](README.md)
+[English version](../en/how-it-works.md) · [← Übersicht](README.md)
 
 ## Zwei getrennte Verbindungen
 

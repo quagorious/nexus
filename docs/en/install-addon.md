@@ -1,6 +1,6 @@
 # Install and connect the addon
 
-🇩🇪 [Deutsche Version](../de/install-addon.md) · [← Set up Quagorious](setup-quagorious.md) · Next: [Using the addon →](using-the-addon.md)
+[Deutsche Version](../de/install-addon.md) · [← Set up Quagorious](setup-quagorious.md) · Next: [Using the addon →](using-the-addon.md)
 
 You need: a Quagorious account and logs that reach Quagorious (see
 [Set up Quagorious and the uploader](setup-quagorious.md)).
