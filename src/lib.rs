@@ -10,10 +10,15 @@
 //! - worker: all request/response HTTP + card rendering, driven by `Cmd`s.
 //! - live: holds the SSE stream open and turns events into `Cmd::Refresh`.
 
+// A lock guard in an `if let`/`match` scrutinee lives for the whole block;
+// calling code that takes the same lock in there deadlocks the game.
+#![warn(clippy::significant_drop_in_scrutinee)]
+
 mod cards;
 mod clipboard;
 mod net;
 mod shell;
+mod squad_ui;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -68,6 +73,8 @@ static STOP: AtomicBool = AtomicBool::new(false);
 /// Ask the live thread to drop its connection and reconnect (account changed).
 static LIVE_KICK: AtomicBool = AtomicBool::new(false);
 static WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
+/// The squad panel (follows the try shown in the main window).
+static SQUAD_OPEN: AtomicBool = AtomicBool::new(false);
 /// Key of the card variant the user last looked at ("overview", "fight",
 /// "boon:alacrity"); the carousel and copy keybind follow it.
 static FOCUS_KEY: Mutex<String> = Mutex::new(String::new());
@@ -95,6 +102,8 @@ struct Settings {
     auto_copy: bool,
     /// Show a Nexus alert when a new encounter arrives.
     notify: bool,
+    /// Text size of the addon's windows (1.0 = the game's UI font).
+    text_scale: f32,
 }
 
 impl Default for Settings {
@@ -105,6 +114,7 @@ impl Default for Settings {
             auto_open: true,
             auto_copy: false,
             notify: true,
+            text_scale: 1.0,
         }
     }
 }
@@ -135,6 +145,8 @@ struct Shared {
     tries: Vec<TrySummary>,
     current: Option<u64>,
     card: Option<Arc<CardView>>,
+    /// Squad panel for `current`; needs the try's full analysis.
+    squad: Option<Arc<squad_ui::SquadPanel>>,
     loading: bool,
     /// (text, is_error, when)
     message: Option<(String, bool, Instant)>,
@@ -172,6 +184,16 @@ fn set_message(text: impl Into<String>, error: bool) {
 
 fn lang() -> Lang {
     lock(&SETTINGS).locale
+}
+
+/// `de` or `en`, following the language setting. Don't call it while
+/// holding the `SETTINGS` lock (use [`tr_in`] there).
+fn tr(de: &'static str, en: &'static str) -> &'static str {
+    tr_in(lang(), de, en)
+}
+
+fn tr_in(lang: Lang, de: &'static str, en: &'static str) -> &'static str {
+    if lang == Lang::De { de } else { en }
 }
 
 /// NUL-terminated UTF-16 for Win32 calls.
@@ -264,6 +286,9 @@ struct Worker {
     loaded_once: bool,
     /// Full analyses (locale-independent), fetched with the share token.
     full: HashMap<u64, FullEncounter>,
+    /// Mechanic name → localized text, collected from module details (the
+    /// full analysis only has English descriptions).
+    texts: HashMap<String, String>,
     specs: cards::SpecStore,
     /// Encounter id → boss id (from live events; the module API lacks it).
     boss_ids: HashMap<u64, u64>,
@@ -318,7 +343,10 @@ impl Worker {
             }
             Cmd::Relocale => {
                 self.details.clear();
-                if let Some(id) = lock(&SHARED).current {
+                self.texts.clear();
+                // Copy it out first: `show` takes the lock itself.
+                let current = lock(&SHARED).current;
+                if let Some(id) = current {
                     self.show(id, false);
                 }
             }
@@ -343,6 +371,7 @@ impl Worker {
                     let mut sh = lock(&SHARED);
                     sh.tries.clear();
                     sh.card = None;
+                    sh.squad = None;
                     sh.current = None;
                 }
                 LIVE_KICK.store(true, Ordering::Relaxed);
@@ -360,7 +389,7 @@ impl Worker {
             Ok(l) => l.tries,
             Err(e) => {
                 log::warn!("refresh failed: {e}");
-                set_message(format!("Refresh failed: {e}"), true);
+                set_message(format!("{} {e}", tr("Aktualisieren fehlgeschlagen:", "Refresh failed:")), true);
                 return None;
             }
         };
@@ -408,12 +437,15 @@ impl Worker {
             Some(e) => e.clone(),
             None => match with_session(|s| net::encounter(s, id, lang.code())) {
                 Ok(e) => {
+                    for m in &e.mechanics {
+                        self.texts.insert(m.name.clone(), m.text.clone());
+                    }
                     self.details.insert(id, e.clone());
                     e
                 }
                 Err(e) => {
                     lock(&SHARED).loading = false;
-                    set_message(format!("Could not load encounter {id}: {e}"), true);
+                    set_message(format!("{} {id}: {e}", tr("Konnte Try nicht laden", "Could not load encounter")), true);
                     return;
                 }
             },
@@ -423,7 +455,7 @@ impl Worker {
             let sh = lock(&SHARED);
             (sh.tries.clone(), sh.web_tokens.get(&id).cloned())
         };
-        let full = token.as_deref().and_then(|t| self.full_analysis(id, t));
+        let full = token.as_deref().and_then(|t| self.full_analysis(id, t, true));
         let mut names: Vec<&str> = vec![enc.profession.as_str()];
         if let Some(f) = &full {
             names.extend(f.players.iter().map(|p| p.profession.as_str()));
@@ -435,11 +467,23 @@ impl Worker {
             .and_then(|f| f.encounter.boss_id)
             .or_else(|| self.boss_ids.get(&id).copied())
             .and_then(|b| self.boss_images.get(b));
-        let view = Arc::new(cards::build(&enc, full.as_ref(), &tries, lang, url, &self.specs.specs, boss_image));
+        // Before the card: the squad view is also the "Squad" card variant.
+        let squad = full.as_ref().map(|f| self.squad_view(&enc, f, &tries, lang));
+        let view = Arc::new(cards::build(
+            &enc,
+            full.as_ref(),
+            &tries,
+            lang,
+            url.clone(),
+            &self.specs.specs,
+            boss_image,
+            squad.as_ref(),
+        ));
         {
             let mut sh = lock(&SHARED);
             sh.current = Some(id);
             sh.card = Some(view.clone());
+            sh.squad = squad.map(|v| Arc::new(squad_ui::SquadPanel::new(v, url)));
             sh.loading = false;
         }
 
@@ -458,13 +502,72 @@ impl Worker {
         }
     }
 
-    /// The website analysis for `id`; retried once since a just-uploaded
-    /// try may still be processing.
-    fn full_analysis(&mut self, id: u64, token: &str) -> Option<FullEncounter> {
+    /// Builds the squad view for `enc`, loading the full analyses of today's
+    /// other tries at the same boss (those whose share token we know; cached).
+    fn squad_view(
+        &mut self,
+        enc: &Encounter,
+        full: &FullEncounter,
+        tries: &[TrySummary],
+        lang: Lang,
+    ) -> quagorious_card::squad::SquadView {
+        use quagorious_card::squad::{SquadInput, TodayTry, build};
+        let mut today: Vec<&TrySummary> = match tries.iter().find(|t| t.id == enc.id) {
+            Some(cur) => {
+                let day = cards::local_day(cur.time_start);
+                tries
+                    .iter()
+                    .filter(|t| t.boss == cur.boss && t.mode == cur.mode && cards::local_day(t.time_start) == day)
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        today.sort_by_key(|t| t.time_start);
+        let tokens = lock(&SHARED).web_tokens.clone();
+        for t in &today {
+            if t.id != enc.id
+                && let Some(token) = tokens.get(&t.id)
+            {
+                self.full_analysis(t.id, token, false);
+            }
+        }
+        let mut today_tries: Vec<TodayTry> = today
+            .iter()
+            .map(|t| TodayTry {
+                id: t.id,
+                success: t.success,
+                boss_hp_left: t.boss_hp_left,
+                full: if t.id == enc.id { Some(full) } else { self.full.get(&t.id) },
+            })
+            .collect();
+        if today_tries.is_empty() {
+            today_tries.push(TodayTry { id: enc.id, success: enc.success, boss_hp_left: enc.boss_hp_left, full: Some(full) });
+        }
+        let names: Vec<String> = full.players.iter().map(|p| p.profession.clone()).collect();
+        self.specs.ensure(names.iter().map(String::as_str));
+        let start = tries.iter().find(|t| t.id == enc.id).map(|t| t.time_start).unwrap_or(full.encounter.time_start);
+        let stamp = cards::stamp(start, lang);
+        build(&SquadInput {
+            id: enc.id,
+            full,
+            boss: &enc.boss,
+            mode: &enc.mode,
+            account: &enc.account,
+            today: &today_tries,
+            stamp: &stamp,
+            texts: &self.texts,
+            specs: &self.specs.specs,
+            lang,
+        })
+    }
+
+    /// The website analysis for `id`. With `retry`, a failure is retried
+    /// once, since a just-uploaded try may still be processing.
+    fn full_analysis(&mut self, id: u64, token: &str, retry: bool) -> Option<FullEncounter> {
         if let Some(f) = self.full.get(&id) {
             return Some(f.clone());
         }
-        for attempt in 1..=2 {
+        for attempt in 1..=(if retry { 2 } else { 1 }) {
             if attempt > 1 {
                 thread::sleep(Duration::from_secs(2));
             }
@@ -490,11 +593,15 @@ fn focused(card: &CardView) -> &VariantView {
 fn copy_image(v: &VariantView) -> bool {
     match clipboard::set_image(v.width, v.height, &v.rgba, &v.png, MATTE) {
         Ok(()) => {
-            set_message(format!("Card \"{}\" copied to clipboard", v.label), false);
+            let msg = match lang() {
+                Lang::De => format!("Karte \"{}\" in die Zwischenablage kopiert", v.label),
+                Lang::En => format!("Card \"{}\" copied to clipboard", v.label),
+            };
+            set_message(msg, false);
             true
         }
         Err(e) => {
-            set_message(format!("Copy failed: {e}"), true);
+            set_message(format!("{} {e}", tr("Kopieren fehlgeschlagen:", "Copy failed:")), true);
             false
         }
     }
@@ -523,7 +630,7 @@ fn new_card_alert(enc: &Encounter, v: &VariantView, copied: Option<bool>, lang: 
 
 fn copy_text(card: &CardView) {
     match clipboard::set_text(&card.text) {
-        Ok(()) => set_message("Summary text copied to clipboard", false),
+        Ok(()) => set_message(tr("Zusammenfassung als Text kopiert", "Summary text copied to clipboard"), false),
         Err(e) => set_message(format!("Copy failed: {e}"), true),
     }
 }
@@ -651,7 +758,14 @@ fn load() {
         threads.push(thread::spawn(live_loop));
     }
 
-    register_render(RenderType::Render, render!(|ui| draw_window(ui))).revert_on_unload();
+    register_render(
+        RenderType::Render,
+        render!(|ui| {
+            draw_window(ui);
+            squad_ui::draw(ui);
+        }),
+    )
+    .revert_on_unload();
     register_render(RenderType::OptionsRender, render!(|ui| draw_options(ui))).revert_on_unload();
 
     let toggle = keybind_handler!(|_id, is_release| {
@@ -665,9 +779,9 @@ fn load() {
         if !is_release {
             let card = lock(&SHARED).card.clone();
             match card {
-                Some(c) if copy_image(focused(&c)) => send_alert("Quagorious: card copied"),
-                Some(_) => send_alert("Quagorious: copy failed"),
-                None => send_alert("Quagorious: no card yet"),
+                Some(c) if copy_image(focused(&c)) => send_alert(tr("Quagorious: Karte kopiert", "Quagorious: card copied")),
+                Some(_) => send_alert(tr("Quagorious: Kopieren fehlgeschlagen", "Quagorious: copy failed")),
+                None => send_alert(tr("Quagorious: noch keine Karte", "Quagorious: no card yet")),
             }
         }
     });
@@ -715,15 +829,24 @@ thread_local! {
 
 fn status_line(ui: &Ui, sh: &Shared) {
     match &sh.conn {
-        Conn::NotConfigured => ui.text_colored(YELLOW, "Not connected - set your API key in Nexus > Options > Quagorious"),
-        Conn::Connecting => ui.text_colored(MUTED, "Connecting..."),
-        Conn::Error(e) => ui.text_colored(RED, format!("Error: {e}")),
+        Conn::NotConfigured => ui.text_colored(
+            YELLOW,
+            tr(
+                "Nicht verbunden - API-Key unter Nexus > Optionen > Quagorious eintragen",
+                "Not connected - set your API key in Nexus > Options > Quagorious",
+            ),
+        ),
+        Conn::Connecting => ui.text_colored(MUTED, tr("Verbinde...", "Connecting...")),
+        Conn::Error(e) => ui.text_colored(RED, format!("{} {e}", tr("Fehler:", "Error:"))),
         Conn::Connected(account) => {
             let (col, live) = match &sh.live {
                 Live::Streaming => (GREEN, "live".to_string()),
-                Live::Connecting => (MUTED, "connecting live feed...".to_string()),
-                Live::Off => (MUTED, "live feed off".to_string()),
-                Live::Retrying(r) => (YELLOW, format!("live feed lost ({r}), retrying")),
+                Live::Connecting => (MUTED, tr("verbinde Live-Feed...", "connecting live feed...").to_string()),
+                Live::Off => (MUTED, tr("Live-Feed aus", "live feed off").to_string()),
+                Live::Retrying(r) => match lang() {
+                    Lang::De => (YELLOW, format!("Live-Feed unterbrochen ({r}), neuer Versuch")),
+                    Lang::En => (YELLOW, format!("live feed lost ({r}), retrying")),
+                },
             };
             ui.text_colored(col, format!("{account} · {live}"));
         }
@@ -754,6 +877,7 @@ fn draw_window(ui: &Ui) {
         .opened(&mut open)
         .size([460.0, 720.0], Condition::FirstUseEver)
         .build(ui, || {
+            ui.set_window_font_scale(squad_ui::text_scale());
             let (tries, current, card, loading, message) = {
                 let sh = lock(&SHARED);
                 status_line(ui, &sh);
@@ -806,30 +930,54 @@ fn draw_window(ui: &Ui) {
                         *lock(&FOCUS_KEY) = card.variants[i].key.clone();
                     }
                 } else {
-                    ui.text_disabled("Extra cards need the try's share link (tries seen live).");
+                    ui.text_disabled(tr(
+                        "Weitere Karten brauchen den Share-Link des Trys (nur live gesehene Tries).",
+                        "Extra cards need the try's share link (tries seen live).",
+                    ));
                 }
 
-                if ui.button("Copy image") {
+                if ui.button(tr("Bild kopieren", "Copy image")) {
                     let _ = copy_image(focused(card));
                 }
                 ui.same_line();
-                if ui.button("Copy text") {
+                if ui.button(tr("Text kopieren", "Copy text")) {
                     copy_text(card);
                 }
                 if let Some(url) = &card.url {
                     ui.same_line();
-                    if ui.button("Open in browser")
+                    if ui.button(tr("Im Browser öffnen", "Open in browser"))
                         && let Err(e) = shell::open_url(url)
                     {
-                        set_message(format!("Could not open browser: {e}"), true);
+                        set_message(format!("{} {e}", tr("Browser konnte nicht geöffnet werden:", "Could not open browser:")), true);
+                    }
+                }
+                ui.same_line();
+                let squad_ready = lock(&SHARED).squad.is_some();
+                if squad_ready {
+                    if ui.button(tr("Squad-Fenster", "Squad window")) {
+                        SQUAD_OPEN.fetch_xor(true, Ordering::Relaxed);
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(tr(
+                            "Die Squad-Ansicht im eigenen Fenster, mit Details beim Drüberfahren.",
+                            "The squad view in its own window, with details on hover.",
+                        ));
+                    }
+                } else {
+                    ui.text_disabled(tr("Squad-Fenster", "Squad window"));
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(tr(
+                            "Die Squad-Ansicht braucht den Share-Link des Trys (nur live gesehene Tries).",
+                            "The squad view needs the try's share link (tries seen live).",
+                        ));
                     }
                 }
                 if loading {
                     ui.same_line();
-                    ui.text_colored(MUTED, "loading...");
+                    ui.text_colored(MUTED, tr("lädt...", "loading..."));
                 }
             } else if loading {
-                ui.text_colored(MUTED, "Loading...");
+                ui.text_colored(MUTED, tr("Lädt...", "Loading..."));
             }
 
             if let Some((text, err, at)) = &message
@@ -848,7 +996,7 @@ fn draw_window(ui: &Ui) {
                         let k = (avail / w).min(1.0);
                         Image::new(tex.id(), [w * k, h * k]).build(ui);
                     }
-                    None => ui.text_colored(MUTED, "Preparing preview..."),
+                    None => ui.text_colored(MUTED, tr("Vorschau wird vorbereitet...", "Preparing preview...")),
                 }
             }
         });
@@ -864,22 +1012,30 @@ fn draw_options(ui: &Ui) {
     }
     ui.spacing();
 
+    let l = lang();
+    let t = |de, en| tr_in(l, de, en);
     KEY_INPUT.with_borrow_mut(|key| {
         ui.set_next_item_width(320.0);
         let submitted = ui
-            .input_text("GW2 API key", key)
+            .input_text(t("GW2-API-Key", "GW2 API key"), key)
             .password(true)
             .enter_returns_true(true)
             .build();
         ui.same_line();
-        if (ui.button("Connect") || submitted) && !key.trim().is_empty() {
+        if (ui.button(t("Verbinden", "Connect")) || submitted) && !key.trim().is_empty() {
             send(Cmd::Connect(std::mem::take(key)));
         }
     });
-    ui.text_disabled("Needs a key with the 'account' permission. Only a 1-year, account-only");
-    ui.text_disabled("subtoken derived from it is stored; the key itself is not saved.");
+    ui.text_disabled(t(
+        "Braucht einen Key mit der Berechtigung 'account'. Gespeichert wird nur ein daraus",
+        "Needs a key with the 'account' permission. Only a 1-year, account-only",
+    ));
+    ui.text_disabled(t(
+        "erzeugter Subtoken (1 Jahr, nur 'account'); der Key selbst wird nicht gespeichert.",
+        "subtoken derived from it is stored; the key itself is not saved.",
+    ));
 
-    if lock(&SETTINGS).subtoken.is_some() && ui.button("Disconnect") {
+    if lock(&SETTINGS).subtoken.is_some() && ui.button(t("Trennen", "Disconnect")) {
         send(Cmd::Disconnect);
     }
     ui.spacing();
@@ -891,14 +1047,29 @@ fn draw_options(ui: &Ui) {
         let mut s = lock(&SETTINGS);
         let mut idx = s.locale as usize;
         ui.set_next_item_width(160.0);
-        if ui.combo_simple_string("Card language", &mut idx, &["Deutsch", "English"]) {
+        if ui.combo_simple_string("Sprache / Language", &mut idx, &["Deutsch", "English"]) {
             s.locale = if idx == 1 { Lang::En } else { Lang::De };
             changed = true;
             relocale = true;
         }
-        changed |= ui.checkbox("Open window when a new encounter arrives", &mut s.auto_open);
-        changed |= ui.checkbox("Copy new cards to the clipboard automatically", &mut s.auto_copy);
-        changed |= ui.checkbox("Show a notification when a new encounter arrives", &mut s.notify);
+        changed |= ui.checkbox(t("Fenster bei neuem Try öffnen", "Open window when a new encounter arrives"), &mut s.auto_open);
+        changed |= ui.checkbox(
+            t("Neue Karten automatisch in die Zwischenablage kopieren", "Copy new cards to the clipboard automatically"),
+            &mut s.auto_copy,
+        );
+        changed |= ui.checkbox(
+            t("Benachrichtigung bei neuem Try anzeigen", "Show a notification when a new encounter arrives"),
+            &mut s.notify,
+        );
+        ui.set_next_item_width(160.0);
+        let mut pct = (s.text_scale * 100.0).round() as i32;
+        if nexus::imgui::Slider::new(t("Textgröße der Fenster", "Window text size"), 80, 200)
+            .display_format("%d %%")
+            .build(ui, &mut pct)
+        {
+            s.text_scale = pct as f32 / 100.0;
+            changed = true;
+        }
     }
     if changed {
         save_settings();
@@ -907,9 +1078,15 @@ fn draw_options(ui: &Ui) {
         send(Cmd::Relocale);
     }
     ui.spacing();
-    ui.text_disabled("Keybinds are set above / in Nexus > Keybinds:");
-    ui.text_disabled("QUAGORIOUS_TOGGLE opens the window, QUAGORIOUS_COPY copies the focused card.");
-    if ui.button("Open window") {
+    ui.text_disabled(t(
+        "Tastenbelegung oben bzw. unter Nexus > Tastenbelegung:",
+        "Keybinds are set above / in Nexus > Keybinds:",
+    ));
+    ui.text_disabled(t(
+        "QUAGORIOUS_TOGGLE öffnet das Fenster, QUAGORIOUS_COPY kopiert die gezeigte Karte.",
+        "QUAGORIOUS_TOGGLE opens the window, QUAGORIOUS_COPY copies the focused card.",
+    ));
+    if ui.button(t("Fenster öffnen", "Open window")) {
         WINDOW_OPEN.store(true, Ordering::Relaxed);
     }
 }

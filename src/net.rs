@@ -92,7 +92,8 @@ impl ureq::TlsConnector for CapturingTls {
 
 /// Closes the live connection (if any); the SSE reader then errors out.
 pub fn shutdown_live_socket() {
-    if let Some(s) = crate::lock(&SSE_SOCKET).take() {
+    let socket = crate::lock(&SSE_SOCKET).take();
+    if let Some(s) = socket {
         let _ = s.shutdown(Shutdown::Both);
     }
 }

@@ -20,6 +20,7 @@ what we decided, and what follows from it. All of them were written on
 | [0009](0009-notify-instead-of-opening-window.md) | Notify and auto-copy instead of opening the window | Accepted |
 | [0010](0010-spec-icons-and-boss-images.md) | Spec icons from the GW2 API, boss artwork from the site's table | Accepted |
 | [0011](0011-release-builds-on-github.md) | Build release DLLs on GitHub when a version tag is pushed; Nexus auto-updates from them | Accepted |
+| [0012](0012-squad-panel-in-imgui.md) | The squad view: a card and an imgui window | Accepted |
 
 ## How the code works
 
@@ -61,9 +62,10 @@ refreshed by whichever needs it first (`ensure_session`).
 | `src/lib.rs` | Nexus registration, settings, global state, worker and live threads, imgui window and options page, notifications |
 | `src/net.rs` | All HTTP: GW2 subtoken, module session, live token, try list and details, SSE reader, full analysis, GW2 specs, raw downloads. Holds the SSE socket so `unload` can shut it down |
 | `src/cards.rs` | Builds a `CardView` (all variants at 2× for the clipboard and 1× for the preview). Persists share tokens; caches spec icons and boss images on disk |
+| `src/squad_ui.rs` | The squad window: draws a `SquadView` (header, tiles, timeline, phases today, squad table, boons per group, downs, recurring mistakes, mechanics) in imgui |
 | `src/clipboard.rs` | Win32 clipboard: registered `PNG` + `CF_DIB` for images, `CF_UNICODETEXT` for text |
 | `src/shell.rs` | Opens the web link (`ShellExecuteW` → `xdg-open` under Wine) |
-| `crates/card/` | Platform-independent: API data model, German/English labels, the tiny-skia/ab_glyph renderer, `variants()`, `party()`, `today_chips()`. Testable on Linux with `cargo run -p quagorious_card --example render` |
+| `crates/card/` | Platform-independent: API data model, German/English labels, the tiny-skia/ab_glyph renderer, `variants()`, `party()`, `today_chips()`, `squad::build()` for the squad view, and its card layout in `squad_card.rs`. Testable on Linux with `cargo run -p quagorious_card --example render` |
 | `assets/boss_images.json` | Boss id → image URL (the same table quagorious.gg uses) |
 | `tools/probe.sh`, `tools/capture.sh` | Dump API samples / record the live feed (both read `./.gw2key`) |
 
@@ -84,7 +86,7 @@ refreshed by whichever needs it first (`ensure_session`).
 
 | File | Content |
 |---|---|
-| `settings.json` | Subtoken, language, auto-open / auto-copy / notify |
+| `settings.json` | Subtoken, language (cards and all addon texts), auto-open / auto-copy / notify, window text size |
 | `tokens.json` | Try id → share token, newest 2000 |
 | `gw2_specs.json` | Spec/profession name → profession + icon URL (from the GW2 API), refreshed after 14 days |
 | `icons/<Spec>.png` | Spec icons |
@@ -98,7 +100,9 @@ try picker and card carousel; copying the focused card; the alacrity card
 on a support wipe; the quickness card on a quick-DPS kill (Fraenir of
 Jormag, Harbinger); the browser link; the fixed status line; pasting the
 copied card into Discord on Linux (Wine's clipboard bridge); the Nexus
-notification on a new try.
+notification on a new try; the Squad card and window, the window text size
+and switching the language between German and English
+([0012](0012-squad-panel-in-imgui.md)).
 
 **Verified only on rendered samples (host preview):** all three variants on
 six real tries (kills, wipes, CM, alac-heal, alac-DPS), English labels,

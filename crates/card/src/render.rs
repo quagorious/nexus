@@ -19,7 +19,7 @@ static REGULAR: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
 static BOLD: &[u8] = include_bytes!("../assets/NotoSans-Bold.ttf");
 
 pub const WIDTH: f32 = 420.0;
-const PAD: f32 = 18.0;
+pub(crate) const PAD: f32 = 18.0;
 const INNER: f32 = WIDTH - 2.0 * PAD;
 
 /// Extra information that isn't part of the encounter response itself.
@@ -35,7 +35,7 @@ pub struct CardContext {
 
 /// A decoded boss image.
 #[derive(Clone, Debug)]
-pub struct BossImage(Pixmap);
+pub struct BossImage(pub(crate) Pixmap);
 
 impl BossImage {
     pub fn from_png(bytes: &[u8]) -> Option<Self> {
@@ -59,6 +59,8 @@ pub enum Variant {
     Fight,
     /// Uptime of a boon you provided, per player (e.g. "alacrity").
     Boon(String),
+    /// The whole squad (needs [`CardInput::squad`]); a wider card.
+    Squad,
 }
 
 impl Variant {
@@ -67,6 +69,7 @@ impl Variant {
             Variant::Overview => lang.variant_overview().into(),
             Variant::Fight => lang.fight_timeline().into(),
             Variant::Boon(b) => lang.boon_name(b),
+            Variant::Squad => "Squad".into(),
         }
     }
 }
@@ -119,6 +122,8 @@ pub struct CardInput<'a> {
     pub ctx: &'a CardContext,
     pub specs: &'a Specs,
     pub lang: Lang,
+    /// The squad view, for [`Variant::Squad`].
+    pub squad: Option<&'a crate::squad::SquadView>,
 }
 
 impl CardInput<'_> {
@@ -136,26 +141,26 @@ pub struct RenderedCard {
 }
 
 // --- palette --------------------------------------------------------------
-type Rgba = [u8; 4];
+pub type Rgba = [u8; 4];
 /// Card background, for consumers that have to flatten the rounded corners.
 pub const MATTE: [u8; 3] = [24, 22, 30];
-const BG: Rgba = [MATTE[0], MATTE[1], MATTE[2], 255];
-const PANEL: Rgba = [36, 33, 44, 255];
-const TRACK: Rgba = [52, 48, 62, 255];
-const TEXT: Rgba = [240, 238, 245, 255];
-const MUTED: Rgba = [150, 145, 165, 255];
-const DIM: Rgba = [110, 105, 125, 255];
-const GREEN: Rgba = [74, 222, 128, 255];
-const RED: Rgba = [248, 113, 113, 255];
-const ORANGE: Rgba = [251, 191, 36, 255];
-const PURPLE: Rgba = [167, 139, 250, 255];
-const WHITE_SOFT: Rgba = [255, 255, 255, 215];
-const PHASE_A: Rgba = [64, 60, 78, 255];
-const PHASE_B: Rgba = [92, 66, 160, 255];
-const LOST: Rgba = [248, 113, 113, 70];
+pub(crate) const BG: Rgba = [MATTE[0], MATTE[1], MATTE[2], 255];
+pub(crate) const PANEL: Rgba = [36, 33, 44, 255];
+pub(crate) const TRACK: Rgba = [52, 48, 62, 255];
+pub(crate) const TEXT: Rgba = [240, 238, 245, 255];
+pub(crate) const MUTED: Rgba = [150, 145, 165, 255];
+pub(crate) const DIM: Rgba = [110, 105, 125, 255];
+pub(crate) const GREEN: Rgba = [74, 222, 128, 255];
+pub(crate) const RED: Rgba = [248, 113, 113, 255];
+pub(crate) const ORANGE: Rgba = [251, 191, 36, 255];
+pub(crate) const PURPLE: Rgba = [167, 139, 250, 255];
+pub(crate) const WHITE_SOFT: Rgba = [255, 255, 255, 215];
+pub(crate) const PHASE_A: Rgba = [64, 60, 78, 255];
+pub(crate) const PHASE_B: Rgba = [92, 66, 160, 255];
+pub(crate) const LOST: Rgba = [248, 113, 113, 70];
 
 /// The usual GW2 profession colours.
-fn profession_color(profession: &str) -> Rgba {
+pub fn profession_color(profession: &str) -> Rgba {
     match profession {
         "Guardian" => [114, 193, 217, 255],
         "Revenant" => [209, 110, 90, 255],
@@ -172,13 +177,18 @@ fn profession_color(profession: &str) -> Rgba {
 
 pub fn render(inp: &CardInput, variant: &Variant, scale: f32) -> RenderedCard {
     let fonts = Fonts::load();
+    let width = if *variant == Variant::Squad { crate::squad_card::WIDTH } else { WIDTH };
+    let run = |p: &mut Painter, total_h: f32| match (variant, inp.squad) {
+        (Variant::Squad, Some(v)) => crate::squad_card::layout(p, inp, v, total_h),
+        _ => layout(p, inp, variant, total_h),
+    };
     // Pass 1: measure.
-    let mut p = Painter { pm: None, s: scale, fonts: &fonts };
-    let h = layout(&mut p, inp, variant, 0.0);
+    let mut p = Painter { pm: None, s: scale, fonts: &fonts, w: width };
+    let h = run(&mut p, 0.0);
     // Pass 2: draw.
-    let (pw, ph) = ((WIDTH * scale).ceil() as u32, (h * scale).ceil() as u32);
+    let (pw, ph) = ((width * scale).ceil() as u32, (h * scale).ceil() as u32);
     p.pm = Some(Pixmap::new(pw, ph).expect("card size"));
-    layout(&mut p, inp, variant, h);
+    run(&mut p, h);
     let pm = p.pm.take().unwrap();
     let png = pm.encode_png().unwrap_or_default();
     let mut rgba = Vec::with_capacity(pm.data().len());
@@ -219,6 +229,11 @@ fn layout(p: &mut Painter, inp: &CardInput, variant: &Variant, total_h: f32) -> 
             if let Some(full) = inp.full {
                 y = boon_players(p, inp, full, boon, y);
             }
+            y = mistakes(p, inp, y, false);
+            y = today(p, inp, y);
+        }
+        // Without a squad view: fall back to the overview layout.
+        Variant::Squad => {
             y = mistakes(p, inp, y, false);
             y = today(p, inp, y);
         }
@@ -669,13 +684,13 @@ fn uptime_color(pct: f64) -> Rgba {
 // Drawing primitives
 // --------------------------------------------------------------------------
 
-struct Fonts {
+pub(crate) struct Fonts {
     regular: FontRef<'static>,
     bold: FontRef<'static>,
 }
 
 impl Fonts {
-    fn load() -> Self {
+    pub(crate) fn load() -> Self {
         Self {
             regular: FontRef::try_from_slice(REGULAR).expect("embedded font"),
             bold: FontRef::try_from_slice(BOLD).expect("embedded font"),
@@ -683,10 +698,12 @@ impl Fonts {
     }
 }
 
-struct Painter<'f> {
-    pm: Option<Pixmap>,
-    s: f32,
-    fonts: &'f Fonts,
+pub(crate) struct Painter<'f> {
+    pub(crate) pm: Option<Pixmap>,
+    pub(crate) s: f32,
+    pub(crate) fonts: &'f Fonts,
+    /// Card width in units (the boss image is clipped to its top-right corner).
+    pub(crate) w: f32,
 }
 
 fn paint(c: Rgba) -> Paint<'static> {
@@ -721,15 +738,15 @@ fn rrect_path(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<Path> {
 }
 
 impl Painter<'_> {
-    fn font(&self, bold: bool) -> &FontRef<'static> {
+    pub(crate) fn font(&self, bold: bool) -> &FontRef<'static> {
         if bold { &self.fonts.bold } else { &self.fonts.regular }
     }
 
-    fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, c: Rgba) {
+    pub(crate) fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, c: Rgba) {
         self.rrect(x, y, w, h, 0.0, c);
     }
 
-    fn rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, c: Rgba) {
+    pub(crate) fn rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, c: Rgba) {
         let s = self.s;
         let Some(pm) = self.pm.as_mut() else { return };
         if let Some(path) = rrect_path(x * s, y * s, w * s, h * s, r * s) {
@@ -738,7 +755,7 @@ impl Painter<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn gradient_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, a: Rgba, b: Rgba) {
+    pub(crate) fn gradient_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, a: Rgba, b: Rgba) {
         let s = self.s;
         let Some(pm) = self.pm.as_mut() else { return };
         let Some(path) = rrect_path(x * s, y * s, w * s, h * s, r * s) else { return };
@@ -758,7 +775,7 @@ impl Painter<'_> {
         }
     }
 
-    fn circle(&mut self, cx: f32, cy: f32, r: f32, c: Rgba) {
+    pub(crate) fn circle(&mut self, cx: f32, cy: f32, r: f32, c: Rgba) {
         let s = self.s;
         let Some(pm) = self.pm.as_mut() else { return };
         if let Some(path) = PathBuilder::from_circle(cx * s, cy * s, r * s) {
@@ -767,7 +784,7 @@ impl Painter<'_> {
     }
 
     /// Advance width of `text` in units.
-    fn measure(&self, size: f32, bold: bool, text: &str) -> f32 {
+    pub(crate) fn measure(&self, size: f32, bold: bool, text: &str) -> f32 {
         let font = self.font(bold).as_scaled(PxScale::from(size * 1.36));
         let mut w = 0.0;
         let mut prev: Option<GlyphId> = None;
@@ -783,7 +800,7 @@ impl Painter<'_> {
     }
 
     /// Draws text with its top at `y`; returns its width in units.
-    fn text(&mut self, x: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str) -> f32 {
+    pub(crate) fn text(&mut self, x: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str) -> f32 {
         let width = self.measure(size, bold, text);
         let s = self.s;
         let fonts = self.fonts;
@@ -823,7 +840,7 @@ impl Painter<'_> {
     /// Draws `img` into the given box (bilinear), fading in over `fade` units
     /// from the left edge and clipped to the card's rounded top-right corner.
     #[allow(clippy::too_many_arguments)]
-    fn image(&mut self, img: &Pixmap, x: f32, y: f32, w: f32, h: f32, fade: f32, corner: f32) {
+    pub(crate) fn image(&mut self, img: &Pixmap, x: f32, y: f32, w: f32, h: f32, fade: f32, corner: f32) {
         let s = self.s;
         let Some(pm) = self.pm.as_mut() else { return };
         let (pw, ph) = (pm.width() as i32, pm.height() as i32);
@@ -850,7 +867,7 @@ impl Painter<'_> {
             }
             out
         };
-        let card_right = WIDTH * s;
+        let card_right = self.w * s;
         let r = corner * s;
         let pixels = pm.pixels_mut();
         for dy in 0..dh {
@@ -891,7 +908,7 @@ impl Painter<'_> {
 
     /// Draws a spec icon tinted in its profession colour; falls back to a
     /// short text label when the icon isn't available.
-    fn spec_icon(&mut self, specs: &Specs, spec: &str, x: f32, y: f32, size: f32) {
+    pub(crate) fn spec_icon(&mut self, specs: &Specs, spec: &str, x: f32, y: f32, size: f32) {
         let info = specs.get(spec);
         let prof = info.map(|i| i.profession.as_str()).unwrap_or(spec);
         let col = profession_color(prof);
@@ -932,14 +949,14 @@ impl Painter<'_> {
         }
     }
 
-    fn text_right(&mut self, right: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str) {
+    pub(crate) fn text_right(&mut self, right: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str) {
         let w = self.measure(size, bold, text);
         self.text(right - w, y, size, bold, c, text);
     }
 
     /// Like `text`, but truncates with an ellipsis to fit `max_w`.
     #[allow(clippy::too_many_arguments)]
-    fn text_fit(&mut self, x: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str, max_w: f32) {
+    pub(crate) fn text_fit(&mut self, x: f32, y: f32, size: f32, bold: bool, c: Rgba, text: &str, max_w: f32) {
         if self.measure(size, bold, text) <= max_w {
             self.text(x, y, size, bold, c, text);
             return;
@@ -956,7 +973,7 @@ impl Painter<'_> {
     }
 
     /// Word-wrapped paragraph; returns the height used.
-    fn wrapped(&mut self, x: f32, y: f32, size: f32, c: Rgba, text: &str, max_w: f32) -> f32 {
+    pub(crate) fn wrapped(&mut self, x: f32, y: f32, size: f32, c: Rgba, text: &str, max_w: f32) -> f32 {
         let line_h = size * 1.5;
         let mut lines: Vec<String> = Vec::new();
         let mut cur = String::new();

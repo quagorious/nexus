@@ -5,6 +5,8 @@
 
 pub mod model;
 pub mod render;
+pub mod squad;
+mod squad_card;
 pub mod text;
 
 pub use model::{Encounter, FullEncounter, TryList, TrySummary};
@@ -236,7 +238,7 @@ mod tests {
         let e = enc(json!({ "id": 1, "account": "me.1234", "boss": "Cairn", "success": false, "durationMs": 200000 }));
         let f = squad();
         let (ctx, specs) = (CardContext::default(), Specs::default());
-        let inp = CardInput { enc: &e, full: Some(&f), ctx: &ctx, specs: &specs, lang: Lang::En };
+        let inp = CardInput { enc: &e, full: Some(&f), ctx: &ctx, specs: &specs, lang: Lang::En, squad: None };
         for v in variants(&e, Some(&f)) {
             let card = render(&inp, &v, 1.0);
             assert_eq!(card.width, 420);

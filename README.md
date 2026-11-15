@@ -30,30 +30,70 @@ the one that gets copied, and the window remembers your choice for later tries.
 | **Overview** | Kill time / wipe %, your DPS against your earlier tries, squad DPS, mistakes and contributions, today's tries at this boss | always (squad DPS needs the share token) |
 | **Fight timeline** | Phases, where the try was lost, who went down first, deaths/downs before and after, squad DPS | share token + phases or a wipe |
 | **Your boon** (e.g. Alacrity) | Uptime of the boon you provide, for each player in your subgroup (your party), with the main gap causes | share token + alac/quick role (or named as provider in your party) |
+| **Squad** | The whole squad on one wide card: result, timeline with every down and death, phase times of today's tries, every player's DPS/downs/deaths/fails/boons, boons per group, who went down when, recurring mistakes, mechanics | share token |
 
 The header shows the boss artwork when the boss id is known.
 
 ## Screenshots
 
-All three cards for the same try (a Deimos wipe as alac-heal Scourge), as
-they're copied to the clipboard:
+Cards for one try (a Harvest Temple CM wipe as DPS Spellbreaker), as they're
+copied to the clipboard:
 
-| Overview | Fight timeline | Your boon |
-|---|---|---|
-| ![Overview card](doc/images/card-deimos-overview.png) | ![Fight timeline card](doc/images/card-deimos-fight.png) | ![Alacrity card](doc/images/card-deimos-alacrity.png) |
+| Overview | Fight timeline |
+|---|---|
+| ![Overview card, Harvest Temple CM wipe](doc/images/card-htcm-overview.png) | ![Fight timeline card, Harvest Temple CM wipe](doc/images/card-htcm-fight.png) |
 
-And a kill as quick-DPS Harbinger (Fraenir of Jormag), copied in game:
+The boon card, when you provide quickness or alacrity to your party:
 
-| Overview | Fight timeline | Your boon |
-|---|---|---|
-| ![Overview card, Fraenir kill](doc/images/card-fraenir-overview.png) | ![Fight timeline card, Fraenir kill](doc/images/card-fraenir-fight.png) | ![Quickness card](doc/images/card-fraenir-quickness.png) |
+| Quickness (quick-DPS Harbinger, Fraenir of Jormag kill) | Alacrity (alac-heal Scourge, Deimos wipe) |
+|---|---|
+| ![Quickness card](doc/images/card-fraenir-quickness.png) | ![Alacrity card](doc/images/card-deimos-alacrity.png) |
 
 In game: the window with the try picker, the card carousel and the copy
-buttons, and the addon's page in Nexus → Options.
+buttons (showing the Overview and the Squad card), and the addon's page in
+Nexus → Options.
 
-| Window | Options |
-|---|---|
-| ![Quagorious window in game](doc/images/ingame-window-deimos.png) | ![Nexus options page](doc/images/ingame-options.png) |
+| Window | Window, Squad card | Options |
+|---|---|---|
+| ![Quagorious window in game](doc/images/ingame-window-overview.png) | ![Quagorious window showing the Squad card](doc/images/ingame-window-squad.png) | ![Nexus options page](doc/images/ingame-options.png) |
+
+## Squad card and window
+
+The **Squad** card is the whole squad's view of the selected try (tries seen
+live only). It's in the carousel like the other cards, so it's copied the
+same way. **Squad window** shows the same view in its own window, with
+details on hover (phase times, who went down, account names):
+
+- result, boss artwork, date and start time, squad DPS, downs · deaths and
+  the squad's fails in the header
+- the phase timeline with every down and death (hover for details)
+- phase times of today's tries at this boss, fastest in green
+- every player: group, spec, role, DPS, downs, deaths, fails, quickness and
+  alacrity uptime, plus the boon average per group
+- who went down when, the mistakes that came back in every try today, and
+  the squad's mechanics in this try
+
+![Squad card, Harvest Temple CM wipe](doc/images/card-htcm-squad.webp)
+
+The Squad window in game:
+
+![Squad window in game](doc/images/ingame-squad-window.webp)
+
+**Window text size** in Nexus → Options → Quagorious enlarges the text of
+both windows. See [ADR 0012](doc/ADR/0012-squad-panel-in-imgui.md).
+
+## Language
+
+**Sprache / Language** in Nexus → Options → Quagorious switches the whole
+addon between German and English: cards, both windows, the options page,
+messages and notifications. Mechanic names come from the analysis and are
+partly English in German mode.
+
+| Options | Window | Squad card |
+|---|---|---|
+| ![Options page in English](doc/images/ingame-options-en.png) | ![Window with the Alacrity card in English](doc/images/ingame-window-alacrity-en.png) | ![Squad card in English](doc/images/card-htcm-squad-en.webp) |
+
+![Squad window in English](doc/images/ingame-squad-window-en.webp)
 
 ## Setup
 
@@ -66,7 +106,9 @@ buttons, and the addon's page in Nexus → Options.
    not saved.
 3. Play. Options decide what happens when a new try arrives: copy the card to
    the clipboard, show a Nexus notification ("KILL Faultierion 3:12 · Karte
-   kopiert"), and/or open the window. Card language is Deutsch or English.
+   kopiert"), and/or open the window. **Sprache / Language** (Deutsch or
+   English) applies to the whole addon: cards, both windows, the options
+   page, messages and notifications.
 
 | Action | Default keybind |
 |---|---|

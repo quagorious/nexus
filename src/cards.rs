@@ -12,7 +12,7 @@ use std::{
 use chrono::{Datelike, Local, TimeZone};
 use quagorious_card::{
     BossImage, CardContext, CardInput, Encounter, FullEncounter, IconMask, Lang, SpecInfo, Specs, TrySummary, Variant,
-    render, summary_text, today_chips, variants,
+    render, squad::SquadView, summary_text, today_chips, variants,
 };
 
 use serde::Deserialize;
@@ -48,6 +48,7 @@ pub fn variant_key(v: &Variant) -> String {
         Variant::Overview => "overview".into(),
         Variant::Fight => "fight".into(),
         Variant::Boon(b) => format!("boon:{b}"),
+        Variant::Squad => "squad".into(),
     }
 }
 
@@ -59,6 +60,22 @@ pub fn local_day(ms: i64) -> i64 {
         .unwrap_or(ms.div_euclid(86_400_000))
 }
 
+/// Local "15.11.2026 · 20:56" (de) / "2026-11-15 · 20:56" (en); empty when unknown.
+pub fn stamp(ms: i64, lang: Lang) -> String {
+    if ms <= 0 {
+        return String::new();
+    }
+    Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|d| match lang {
+            Lang::De => d.format("%d.%m.%Y · %H:%M").to_string(),
+            Lang::En => d.format("%Y-%m-%d · %H:%M").to_string(),
+        })
+        .unwrap_or_default()
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     enc: &Encounter,
     full: Option<&FullEncounter>,
@@ -67,23 +84,20 @@ pub fn build(
     url: Option<String>,
     specs: &Specs,
     boss_image: Option<BossImage>,
+    squad: Option<&SquadView>,
 ) -> CardView {
     let mut text = summary_text(enc, lang);
     if let Some(url) = &url {
         text = format!("{text}\n{url}");
     }
-    let stamp = tries
-        .iter()
-        .find(|t| t.id == enc.id)
-        .and_then(|t| Local.timestamp_millis_opt(t.time_start).single())
-        .map(|d| match lang {
-            Lang::De => d.format("%d.%m.%Y · %H:%M").to_string(),
-            Lang::En => d.format("%Y-%m-%d · %H:%M").to_string(),
-        })
-        .unwrap_or_default();
+    let stamp = tries.iter().find(|t| t.id == enc.id).map(|t| stamp(t.time_start, lang)).unwrap_or_default();
     let ctx = CardContext { today: today_chips(tries, enc, local_day), stamp, boss_image };
-    let inp = CardInput { enc, full, ctx: &ctx, specs, lang };
-    let variants = variants(enc, full)
+    let inp = CardInput { enc, full, ctx: &ctx, specs, lang, squad };
+    let mut kinds = variants(enc, full);
+    if squad.is_some() {
+        kinds.push(Variant::Squad);
+    }
+    let variants = kinds
         .iter()
         .map(|v| {
             let big = render(&inp, v, 2.0);

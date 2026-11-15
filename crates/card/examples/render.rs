@@ -40,7 +40,7 @@ fn main() {
         std::fs::read(format!("{dir}/bosses/{id}.png")).ok().and_then(|b| quagorious_card::BossImage::from_png(&b))
     });
     let ctx = CardContext { today, stamp: std::env::var("STAMP").unwrap_or_else(|_| "14.11.2026 · 20:31".into()), boss_image };
-    let inp = CardInput { enc: &enc, full: full.as_ref(), ctx: &ctx, specs: &specs, lang };
+    let inp = CardInput { enc: &enc, full: full.as_ref(), ctx: &ctx, specs: &specs, lang, squad: None };
     for (i, v) in variants(&enc, full.as_ref()).iter().enumerate() {
         let card = render(&inp, v, 2.0);
         let out = format!("{prefix}_{i}.png");

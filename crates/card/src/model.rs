@@ -99,6 +99,15 @@ fn nd<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
+/// The website API sends flags as `0`/`1` (sometimes as `true`/`false`).
+fn flag<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(match Option::<serde_json::Value>::deserialize(d)? {
+        Some(serde_json::Value::Bool(b)) => b,
+        Some(serde_json::Value::Number(n)) => n.as_f64().is_some_and(|v| v != 0.0),
+        _ => false,
+    })
+}
+
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct FullEncounter {
@@ -106,12 +115,53 @@ pub struct FullEncounter {
     pub encounter: FullHeader,
     #[serde(deserialize_with = "nd")]
     pub players: Vec<Player>,
+    /// Every mechanic event per player: fails, tasks and plain events
+    /// ("Downed", "Dead", "Got up", ...).
+    #[serde(deserialize_with = "nd")]
+    pub mechanics: Vec<FullMechanic>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FullMechanic {
+    /// Short EI name, e.g. "J.Breath.H", "Downed", "Dead".
+    #[serde(deserialize_with = "nd")]
+    pub name: String,
+    /// English description, e.g. "Hit by Jormag Breath".
+    #[serde(deserialize_with = "nd")]
+    pub description: String,
+    #[serde(deserialize_with = "nd")]
+    pub account: String,
+    #[serde(deserialize_with = "nd")]
+    pub count: u32,
+    /// Fight time (ms) of every occurrence.
+    #[serde(deserialize_with = "nd")]
+    pub times: Vec<u64>,
+    #[serde(deserialize_with = "nd")]
+    pub fails: u32,
+    /// "fail", "task" or "ok" (plain event).
+    #[serde(deserialize_with = "nd")]
+    pub kind: String,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FullHeader {
     pub boss_id: Option<u64>,
+    #[serde(deserialize_with = "flag")]
+    pub success: bool,
+    #[serde(deserialize_with = "flag")]
+    pub cm: bool,
+    /// Boss HP left in percent (0–100).
+    #[serde(deserialize_with = "nd")]
+    pub boss_hp_left: f64,
+    #[serde(deserialize_with = "nd")]
+    pub squad_dps: f64,
+    #[serde(deserialize_with = "nd")]
+    pub squad_size: u32,
+    /// Unix epoch milliseconds.
+    #[serde(deserialize_with = "nd")]
+    pub time_start: i64,
     #[serde(deserialize_with = "nd")]
     pub duration_ms: u64,
     #[serde(deserialize_with = "nd")]
@@ -123,6 +173,9 @@ pub struct FullHeader {
     /// Deaths after `lost_at_ms`.
     #[serde(deserialize_with = "nd")]
     pub lost_deaths: u32,
+    /// Downs after `lost_at_ms`.
+    #[serde(deserialize_with = "nd")]
+    pub lost_downs: u32,
     /// Deaths/downs before `lost_at_ms` (whole fight on a kill).
     #[serde(deserialize_with = "nd")]
     pub deaths: u32,
@@ -162,8 +215,18 @@ pub struct Player {
     pub downs: u32,
     #[serde(deserialize_with = "nd")]
     pub deaths: u32,
+    /// Fail points in this try.
+    #[serde(deserialize_with = "nd")]
+    pub fails: u32,
+    #[serde(deserialize_with = "flag")]
+    pub commander: bool,
+    pub first_down_ms: Option<u64>,
+    pub first_death_ms: Option<u64>,
     #[serde(deserialize_with = "nd")]
     pub uptime_weighted: HashMap<String, Option<f64>>,
+    /// Uptime over the time the player was alive and in the fight.
+    #[serde(deserialize_with = "nd")]
+    pub uptime_active: HashMap<String, Option<f64>>,
     #[serde(deserialize_with = "nd")]
     pub boon_gaps: HashMap<String, BoonGapInfo>,
 }
