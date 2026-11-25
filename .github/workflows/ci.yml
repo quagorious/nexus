@@ -1,0 +1,69 @@
+# Tests the crates that build on Linux, and checks the Quagorious API contract.
+#
+# `test` runs on every push and pull request. The root crate (quagorious_share)
+# only builds for Windows, so it is built in release.yml, never here.
+#
+# `api-contract` runs tools/check_api.sh against the real server. Because it
+# depends on an external service it runs only daily and on demand, not on
+# pushes. New API paths that answer 404 are reported as PENDING (not deployed
+# yet); legacy paths that disappear are flagged so the fallback code can go.
+# Start it manually from the Actions tab ("Run workflow") and tick "strict" to
+# require the new paths to exist.
+#
+# Optional secret QUAG_SUBTOKEN enables the authenticated checks (token grant,
+# live-token, account stream, encounters). Without it they are skipped. To add
+# it: create a GW2 subtoken with only the `account` permission, e.g.
+#   curl -H "Authorization: Bearer $GW2_KEY" \
+#     "https://api.guildwars2.com/v2/createsubtoken?permissions=account&expire=2027-01-01T00:00:00Z" | jq -r .subtoken
+# then GitHub -> Settings -> Secrets and variables -> Actions -> New repository
+# secret, name QUAG_SUBTOKEN. Subtokens expire, so renew it when the checks
+# start failing the grant. Never use a full API key as the secret.
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * *" # daily, api-contract only
+  workflow_dispatch:
+    inputs:
+      strict:
+        description: "Fail when new API paths are missing (404)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Linux crates)
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked -p quagorious_card -p quagorious_api
+
+  api-contract:
+    name: API contract
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check API paths
+        env:
+          QUAG_SUBTOKEN: ${{ secrets.QUAG_SUBTOKEN }}
+          STRICT: ${{ inputs.strict && '1' || '0' }}
+        run: tools/check_api.sh

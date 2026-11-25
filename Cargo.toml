@@ -9,16 +9,14 @@ description = "Nexus addon: live Quagorious encounter cards, copied to the clipb
 crate-type = ["cdylib"]
 
 [workspace]
-members = [".", "crates/card"]
+members = [".", "crates/api", "crates/card"]
 
 [dependencies]
 quagorious_card = { path = "crates/card" }
+quagorious_api = { path = "crates/api" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 nexus = { git = "https://github.com/Zerthox/nexus-rs", features = ["log", "log_filter"] }
 log = "0.4"
-ureq = { version = "2", features = ["json", "tls"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = "0.26"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_Graphics_Gdi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

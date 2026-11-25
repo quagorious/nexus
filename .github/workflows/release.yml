@@ -53,6 +53,9 @@ jobs:
       - name: Test card crate
         run: cargo test --release --locked -p quagorious_card
 
+      - name: Test api crate
+        run: cargo test --release --locked -p quagorious_api
+
       - name: Collect DLL and checksums
         run: |
           mkdir dist

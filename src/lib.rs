@@ -157,7 +157,7 @@ struct Shared {
 }
 
 fn web_url(token: &str) -> String {
-    format!("https://quagorious.gg/app/encounters/{token}")
+    format!("https://quagorious.gg/share/{token}")
 }
 
 enum Cmd {
@@ -654,35 +654,15 @@ fn set_live(l: Live) {
     lock(&SHARED).live = l;
 }
 
-/// Payload of a live event (`data:` line). Observed:
-/// `{"type":"encounter","id":24499,"token":"…","bossName":"Cairn","cm":0,
-///   "success":true,"bossHpLeft":0,"durationMs":…,"timeStart":…,"seq":4,
-///   "accounts":[…squad…],"bossId":…}`. Pings are `event: ping` with no data.
-#[derive(Deserialize)]
-struct LiveMessage {
-    #[serde(rename = "type", default)]
-    kind: String,
-    #[serde(default)]
-    id: Option<u64>,
-    /// Web link token: https://quagorious.gg/app/encounters/<token>
-    #[serde(default)]
-    token: Option<String>,
-    #[serde(default, rename = "bossId")]
-    boss_id: Option<u64>,
-}
-
 fn handle_live_event(ev: net::SseEvent) {
-    if ev.event == "ping" {
-        return;
-    }
-    // Never log raw payloads: they carry the encounter's web token.
-    match serde_json::from_str::<LiveMessage>(&ev.data) {
-        Ok(LiveMessage { kind, id: Some(id), token, boss_id }) if kind == "encounter" => {
+    // Never log raw payloads: they carry the try's share token.
+    match net::parse_live_event(&ev) {
+        net::LiveEvent::NewTry { id, token, boss_id } => {
             log::info!("live: new encounter {id}");
             send(Cmd::LiveEncounter { id, token, boss_id });
         }
-        Ok(msg) => log::debug!("live: ignoring '{}' / type '{}'", ev.event, msg.kind),
-        Err(_) => {
+        net::LiveEvent::Ignore => {}
+        net::LiveEvent::Unknown => {
             // Unknown shape: fall back to a list refresh so nothing is missed.
             log::info!("live: unrecognised event '{}', refreshing", ev.event);
             send(Cmd::Refresh { announce: true });

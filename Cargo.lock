@@ -647,6 +647,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quagorious_api"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log",
+ "quagorious_card",
+ "rustls",
+ "serde",
+ "serde_json",
+ "ureq",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "quagorious_card"
 version = "0.1.0"
 dependencies = [
@@ -663,12 +677,10 @@ dependencies = [
  "chrono",
  "log",
  "nexus",
+ "quagorious_api",
  "quagorious_card",
- "rustls",
  "serde",
  "serde_json",
- "ureq",
- "webpki-roots 0.26.11",
  "windows-sys 0.59.0",
 ]
 

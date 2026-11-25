@@ -193,6 +193,16 @@ than the installed one. Pre-releases are only used if they're enabled for the
 addon in Nexus. So publishing a release with a higher version is all it takes
 to update every installation.
 
+### API contract check
+
+`tools/check_api.sh` probes the new and legacy Quagorious API paths on the
+real server and prints a PASS / FAIL / PENDING table (new paths that still
+answer 404 are PENDING; `STRICT=1` makes them fail; legacy paths that vanish
+are flagged so the fallback code can be dropped). It runs the authenticated
+part when `QUAG_SUBTOKEN` is set or `.gw2key` exists. CI runs it daily
+(`.github/workflows/ci.yml`, job `api-contract`, optional secret
+`QUAG_SUBTOKEN`).
+
 ### Previewing the card without the game
 
 The renderer lives in `crates/card` with no Windows dependencies:
