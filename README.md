@@ -82,6 +82,18 @@ The Squad window in game:
 **Window text size** in Nexus → Options → Quagorious enlarges the text of
 both windows. See [ADR 0012](docs/ADR/0012-squad-panel-in-imgui.md).
 
+## Posting to Discord
+
+With a channel webhook URL (Nexus → Options → Quagorious → Discord), the
+addon posts your cards itself, with no bot or server. A forum channel gets
+one post per raid night, with a heading per boss and every try's card under
+it. A summary at the top has one box per boss: its time span, wipes and
+result, a link to the boss, and its latest card as a thumbnail that opens
+the image preview with one click. The post is remembered on
+disk, so after a game crash the next try still lands in it. Setup:
+[English](docs/en/discord.md) · [Deutsch](docs/de/discord.md). See
+[ADR 0013](docs/ADR/0013-discord-via-webhook.md).
+
 ## Language
 
 **Sprache / Language** in Nexus → Options → Quagorious switches the whole

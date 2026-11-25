@@ -129,7 +129,7 @@ fn json<T: serde::de::DeserializeOwned>(r: Result<ureq::Response, ureq::Error>) 
 /// Client with its agents and the remembered legacy-path fallbacks.
 pub struct Client {
     ep: Endpoints,
-    agent: ureq::Agent,
+    pub(crate) agent: ureq::Agent,
     sse_agent: ureq::Agent,
     live_socket: SocketSlot,
     legacy_session: AtomicBool,

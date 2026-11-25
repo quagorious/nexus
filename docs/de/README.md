@@ -41,6 +41,8 @@ Quagorious-Account, auf verschiedenen Wegen (siehe
    die DLL von GitHub, der API-Key.
 3. **[Das Addon benutzen](using-the-addon.md)**: Fenster, Karten,
    Squad-Ansicht, Optionen, Tastenbelegung, Sprache.
+4. **[Karten auf Discord posten](discord.md)** (optional): ein Webhook,
+   und das Addon postet jeden Raidabend in einen Forum-Kanal.
 
 Außerdem:
 

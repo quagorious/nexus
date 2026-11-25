@@ -27,6 +27,8 @@
 - **Copy text**: a short summary as text, with the link to the try.
 - **Open in browser**: the try's full analysis on quagorious.gg.
 - **Squad window**: the squad view in its own window (see below).
+- **Post to Discord**: posts the card shown here to tonight's Discord post
+  (only with a webhook set, see [Posting cards to Discord](discord.md)).
 
 ## The cards
 
@@ -79,6 +81,9 @@ hover (phase times, who went down, account names):
 | Copy new cards to the clipboard automatically | off | Copies the card you looked at last |
 | Show a notification when a new encounter arrives | on | Nexus notification with result and copy status |
 | **Window text size** | 100 % | Text size of both windows (80–200 %) |
+| Discord: Webhook URL / Check | — | see [Posting cards to Discord](discord.md) |
+| Discord: Post automatically | Off | Off, Kills only, Every try |
+| Discord: Only post when I'm the commander | off | Posts only tries where you had the commander tag |
 
 A tip for raids: turn on *auto-copy* and *notification*, turn off *open
 window*. Then the card is ready to paste after every boss, and nothing is

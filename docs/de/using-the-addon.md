@@ -30,6 +30,8 @@
 - **Im Browser öffnen**: die volle Auswertung des Trys auf quagorious.gg.
 - **Squad-Fenster**: die Squad-Ansicht in einem eigenen Fenster (siehe
   unten).
+- **An Discord**: postet die gezeigte Karte in den Discord-Post des Abends
+  (nur mit Webhook, siehe [Karten auf Discord posten](discord.md)).
 
 ## Die Karten
 
@@ -81,6 +83,9 @@ Details beim Drüberfahren (Phasenzeiten, wer down ging, Accountnamen):
 | Neue Karten automatisch in die Zwischenablage kopieren | aus | Kopiert die zuletzt angesehene Karte |
 | Benachrichtigung bei neuem Try anzeigen | an | Nexus-Benachrichtigung mit Ergebnis und Kopierstatus |
 | **Textgröße der Fenster** | 100 % | Textgröße beider Fenster (80–200 %) |
+| Discord: Webhook-URL / Prüfen | — | siehe [Karten auf Discord posten](discord.md) |
+| Discord: Automatisch posten | Aus | Aus, Nur Kills, Jeder Try |
+| Discord: Nur posten, wenn ich Kommandeur bin | aus | Postet nur Tries, in denen du das Kommandeur-Zeichen hattest |
 
 Tipp für den Raid: *automatisch kopieren* und *Benachrichtigung* an,
 *Fenster öffnen* aus. Dann liegt die Karte nach jedem Boss zum Einfügen

@@ -21,6 +21,7 @@ what we decided, and what follows from it. All of them were written on
 | [0010](0010-spec-icons-and-boss-images.md) | Spec icons from the GW2 API, boss artwork from the site's table | Accepted |
 | [0011](0011-release-builds-on-github.md) | Build release DLLs on GitHub when a version tag is pushed; Nexus auto-updates from them | Accepted |
 | [0012](0012-squad-panel-in-imgui.md) | The squad view: a card and an imgui window | Accepted |
+| [0013](0013-discord-via-webhook.md) | Posting to Discord through a channel webhook | Accepted |
 
 ## How the code works
 

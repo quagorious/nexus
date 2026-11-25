@@ -91,7 +91,8 @@ All in `Guild Wars 2\addons\Quagorious\`:
 
 | File | Contents |
 |---|---|
-| `settings.json` | subtoken, language, options |
+| `settings.json` | subtoken, language, options, Discord webhook URL |
+| `discord.json` | tonight's Discord post: Discord ids only, no URL |
 | `tokens.json` | try id → share token |
 | `gw2_specs.json`, `icons\` | spec icons from the GW2 API |
 | `bosses\` | boss artwork |
@@ -106,6 +107,8 @@ The addon doesn't log tokens or the raw live events.
   session, live feed, tries, full analysis
 - `i.imgur.com`: the rest of the boss artwork (the same table quagorious.gg
   uses). It's downloaded once and then kept in `bosses\`
+- `discord.com`: only with a webhook set, to post cards
+  ([Posting cards to Discord](discord.md))
 - `github.com`: update check, done by Nexus, not the addon
 
 More background, and the reasons behind these decisions, are in the

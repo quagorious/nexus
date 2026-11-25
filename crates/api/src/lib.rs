@@ -14,6 +14,8 @@
 //! per [`Client`].
 
 mod client;
+pub mod daylog;
+pub mod discord;
 mod live;
 
 pub use client::{Client, Endpoints, NetError, NetResult, Session, SseEvent};

@@ -16,6 +16,7 @@
 
 mod cards;
 mod clipboard;
+mod discord;
 mod net;
 mod shell;
 mod squad_ui;
@@ -104,6 +105,22 @@ struct Settings {
     notify: bool,
     /// Text size of the addon's windows (1.0 = the game's UI font).
     text_scale: f32,
+    /// Discord channel webhook URL; empty = off. A secret: never log it.
+    discord_webhook: String,
+    discord_post: DiscordPost,
+    /// Only post tries where you had the commander tag (one poster per squad).
+    discord_commander_only: bool,
+}
+
+/// Which new tries go to Discord automatically.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+enum DiscordPost {
+    #[default]
+    Off,
+    /// Kills get their card; wipes are only counted in the summary.
+    Kills,
+    All,
 }
 
 impl Default for Settings {
@@ -115,6 +132,9 @@ impl Default for Settings {
             auto_copy: false,
             notify: true,
             text_scale: 1.0,
+            discord_webhook: String::new(),
+            discord_post: DiscordPost::Off,
+            discord_commander_only: false,
         }
     }
 }
@@ -170,6 +190,8 @@ enum Cmd {
     LiveEncounter { id: u64, token: Option<String>, boss_id: Option<u64> },
     /// Locale changed: drop cached details and re-render.
     Relocale,
+    /// Post the shown card to Discord ("Post to Discord" button).
+    PostDiscord,
 }
 
 fn send(cmd: Cmd) {
@@ -341,6 +363,7 @@ impl Worker {
                 self.fetch_list();
                 self.show(id, is_new);
             }
+            Cmd::PostDiscord => self.post_discord(),
             Cmd::Relocale => {
                 self.details.clear();
                 self.texts.clear();
@@ -483,15 +506,21 @@ impl Worker {
             let mut sh = lock(&SHARED);
             sh.current = Some(id);
             sh.card = Some(view.clone());
-            sh.squad = squad.map(|v| Arc::new(squad_ui::SquadPanel::new(v, url)));
+            sh.squad = squad.map(|v| Arc::new(squad_ui::SquadPanel::new(v, url.clone())));
             sh.loading = false;
         }
 
         if is_new {
-            let (auto_open, auto_copy, notify) = {
+            let (auto_open, auto_copy, notify, webhook, post, commander_only) = {
                 let s = lock(&SETTINGS);
-                (s.auto_open, s.auto_copy, s.notify)
+                (s.auto_open, s.auto_copy, s.notify, s.discord_webhook.clone(), s.discord_post, s.discord_commander_only)
             };
+            if post != DiscordPost::Off && !webhook.is_empty() && (!commander_only || enc.commander) {
+                let png = (post == DiscordPost::All || enc.success).then(|| focused(&view).png.clone());
+                let start = tries.iter().find(|t| t.id == id).map(|t| t.time_start);
+                let p = try_post(&enc, start.or(full.as_ref().map(|f| f.encounter.time_start)), url.clone(), png);
+                discord::queue(discord::Job::Post { webhook, post: p, manual: false });
+            }
             if auto_open {
                 WINDOW_OPEN.store(true, Ordering::Relaxed);
             }
@@ -500,6 +529,21 @@ impl Worker {
                 send_alert(new_card_alert(&enc, focused(&view), copied, lang));
             }
         }
+    }
+
+    /// The shown card goes to Discord, whatever the auto-post options say.
+    fn post_discord(&mut self) {
+        let webhook = lock(&SETTINGS).discord_webhook.clone();
+        let (current, card, start) = {
+            let sh = lock(&SHARED);
+            let start = sh.current.and_then(|c| sh.tries.iter().find(|t| t.id == c)).map(|t| t.time_start);
+            (sh.current, sh.card.clone(), start)
+        };
+        let (Some(id), Some(card)) = (current, card) else { return };
+        let Some(enc) = self.details.get(&id) else { return };
+        let start = start.or_else(|| self.full.get(&id).map(|f| f.encounter.time_start));
+        let p = try_post(enc, start, card.url.clone(), Some(focused(&card).png.clone()));
+        discord::queue(discord::Job::Post { webhook, post: p, manual: true });
     }
 
     /// Builds the squad view for `enc`, loading the full analyses of today's
@@ -580,6 +624,20 @@ impl Worker {
             }
         }
         None
+    }
+}
+
+fn try_post(enc: &Encounter, start_ms: Option<i64>, share_url: Option<String>, png: Option<Vec<u8>>) -> quagorious_api::daylog::TryPost {
+    quagorious_api::daylog::TryPost {
+        id: enc.id,
+        boss: enc.boss.clone(),
+        mode: enc.mode.clone(),
+        success: enc.success,
+        duration_ms: enc.duration_ms,
+        hp_left: enc.boss_hp_left,
+        start_ms: start_ms.filter(|&t| t > 0).unwrap_or_else(now_ms),
+        share_url,
+        png,
     }
 }
 
@@ -736,6 +794,7 @@ fn load() {
         let mut threads = lock(&THREADS);
         threads.push(thread::spawn(move || worker_loop(rx)));
         threads.push(thread::spawn(live_loop));
+        threads.push(discord::start());
     }
 
     register_render(
@@ -775,6 +834,7 @@ fn unload() {
     STOP.store(true, Ordering::Relaxed);
     net::shutdown_live_socket();
     lock(&CMD_TX).take(); // worker's recv() returns Err once the sender is gone
+    discord::stop();
     // Our code must not run after the DLL is gone: wait for the threads. The
     // socket is shut down again on every poll because the live thread may
     // have been mid-connect (no socket to close yet) the first time.
@@ -923,6 +983,18 @@ fn draw_window(ui: &Ui) {
                 if ui.button(tr("Text kopieren", "Copy text")) {
                     copy_text(card);
                 }
+                if !lock(&SETTINGS).discord_webhook.is_empty() {
+                    ui.same_line();
+                    if ui.button(tr("An Discord", "Post to Discord")) {
+                        send(Cmd::PostDiscord);
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(tr(
+                            "Postet die gezeigte Karte in den Raidabend-Post auf Discord.",
+                            "Posts the card shown here to tonight's post on Discord.",
+                        ));
+                    }
+                }
                 if let Some(url) = &card.url {
                     ui.same_line();
                     if ui.button(tr("Im Browser öffnen", "Open in browser"))
@@ -1051,6 +1123,47 @@ fn draw_options(ui: &Ui) {
             changed = true;
         }
     }
+    ui.spacing();
+    ui.separator();
+    ui.text("Discord");
+    {
+        let mut s = lock(&SETTINGS);
+        ui.set_next_item_width(320.0);
+        changed |= ui.input_text(t("Webhook-URL", "Webhook URL"), &mut s.discord_webhook).password(true).build();
+        ui.same_line();
+        if ui.button(t("Prüfen", "Check")) {
+            discord::queue(discord::Job::Check { webhook: s.discord_webhook.clone() });
+        }
+        if !s.discord_webhook.is_empty() && !discord::is_valid(&s.discord_webhook) {
+            ui.text_colored(
+                RED,
+                t(
+                    "Keine Discord-Webhook-URL (https://discord.com/api/webhooks/...)",
+                    "Not a Discord webhook URL (https://discord.com/api/webhooks/...)",
+                ),
+            );
+        }
+        let mut idx = s.discord_post as usize;
+        ui.set_next_item_width(160.0);
+        let modes = [t("Aus", "Off"), t("Nur Kills", "Kills only"), t("Jeder Try", "Every try")];
+        if ui.combo_simple_string(t("Automatisch posten", "Post automatically"), &mut idx, &modes) {
+            s.discord_post = [DiscordPost::Off, DiscordPost::Kills, DiscordPost::All][idx.min(2)];
+            changed = true;
+        }
+        changed |= ui.checkbox(
+            t("Nur posten, wenn ich Kommandeur bin", "Only post when I'm the commander"),
+            &mut s.discord_commander_only,
+        );
+    }
+    ui.text_disabled(t(
+        "Gepostet wird die Karte, die im Fenster gezeigt wird. Ein Forum-Kanal bekommt einen Post pro Raidabend.",
+        "Posts the card shown in the window. A forum channel gets one post per raid night.",
+    ));
+    ui.text_disabled(t(
+        "Die URL ist geheim: Wer sie hat, kann in den Kanal posten.",
+        "Keep the URL secret: anyone who has it can post to the channel.",
+    ));
+
     if changed {
         save_settings();
     }

@@ -239,3 +239,112 @@ fn listen_stops_when_callback_returns_false() {
         .unwrap();
     assert_eq!(n, 1);
 }
+
+// --- Discord webhooks -------------------------------------------------------
+
+use quagorious_api::discord::{Attachment, DiscordError, NewMessage, Webhook};
+
+#[test]
+fn discord_post_sends_multipart_with_payload_and_file() {
+    let m = Mock::start(|_, _| json(r#"{"id":"m1","channel_id":"t1","content":"x"}"#));
+    let hook = Webhook::with_base(&m.url, "42", "tok");
+    let msg = client(&m)
+        .discord_post(
+            &hook,
+            &NewMessage {
+                content: "**Kill** · 7:42",
+                thread_id: Some("t1"),
+                file: Some(Attachment { filename: "card.png", content_type: "image/png", bytes: b"PNGDATA" }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!((msg.id.as_str(), msg.channel_id.as_str()), ("m1", "t1"));
+    let reqs = m.reqs.lock().unwrap();
+    assert_eq!(reqs[0].method, "POST");
+    assert_eq!(reqs[0].path, "/api/webhooks/42/tok?wait=true&thread_id=t1");
+    let body = &reqs[0].body;
+    assert!(body.contains("name=\"payload_json\""), "{body}");
+    assert!(body.contains(r#""attachments":[{"filename":"card.png","id":0}]"#), "{body}");
+    assert!(body.contains(r#""allowed_mentions":{"parse":[]}"#), "{body}");
+    assert!(body.contains("name=\"files[0]\"; filename=\"card.png\"\r\nContent-Type: image/png\r\n\r\nPNGDATA\r\n"), "{body}");
+}
+
+#[test]
+fn discord_creates_forum_post_with_json_and_edits() {
+    let m = Mock::start(|_, _| json(r#"{"id":"m1","channel_id":"t1"}"#));
+    let hook = Webhook::with_base(&m.url, "42", "tok");
+    let c = client(&m);
+    c.discord_post(&hook, &NewMessage { content: "summary", thread_name: Some("1125_Wed"), ..Default::default() })
+        .unwrap();
+    c.discord_edit(&hook, Some("t1"), "m1", "new summary").unwrap();
+    let reqs = m.reqs.lock().unwrap();
+    let first: serde_json::Value = serde_json::from_str(&reqs[0].body).unwrap();
+    assert_eq!(first["thread_name"], "1125_Wed");
+    assert_eq!(first["content"], "summary");
+    assert_eq!(reqs[1].method, "PATCH");
+    assert_eq!(reqs[1].path, "/api/webhooks/42/tok/messages/m1?thread_id=t1");
+    let edit: serde_json::Value = serde_json::from_str(&reqs[1].body).unwrap();
+    assert_eq!(edit["content"], "new summary");
+}
+
+#[test]
+fn discord_retries_once_after_rate_limit_and_maps_404() {
+    let hits = Arc::new(Mutex::new(0));
+    let h = hits.clone();
+    let m = Mock::start(move |_, _| {
+        let mut n = h.lock().unwrap();
+        *n += 1;
+        match *n {
+            1 => (429, "application/json", r#"{"message":"slow down","retry_after":0.05,"global":false}"#.into()),
+            2 => json(r#"{"id":"m1","channel_id":"t1"}"#),
+            _ => (404, "application/json", r#"{"message":"Unknown Channel","code":10003}"#.into()),
+        }
+    });
+    let hook = Webhook::with_base(&m.url, "42", "tok");
+    let c = client(&m);
+    let msg = NewMessage { content: "x", ..Default::default() };
+    assert_eq!(c.discord_post(&hook, &msg).unwrap().id, "m1");
+    assert_eq!(*hits.lock().unwrap(), 2);
+    match c.discord_post(&hook, &msg) {
+        Err(DiscordError::NotFound(e)) => assert!(e.contains("Unknown Channel"), "{e}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn discord_info_reads_guild_and_channel() {
+    let m = Mock::start(|_, _| json(r#"{"id":"42","type":1,"guild_id":"7","channel_id":"9","name":"x"}"#));
+    let info = client(&m).discord_info(&Webhook::with_base(&m.url, "42", "tok")).unwrap();
+    assert_eq!((info.guild_id.as_deref(), info.channel_id.as_deref()), (Some("7"), Some("9")));
+    assert_eq!(m.paths(), ["GET /api/webhooks/42/tok"]);
+}
+
+#[test]
+fn discord_edit_keeps_listed_attachments_and_adds_the_new_one() {
+    use quagorious_api::discord::Edit;
+    let m = Mock::start(|_, _| {
+        json(r#"{"id":"m1","channel_id":"t1","attachments":[{"id":"5","filename":"thumb-1.png"},{"id":"6","filename":"thumb-2.png"}]}"#)
+    });
+    let hook = Webhook::with_base(&m.url, "42", "tok");
+    let msg = client(&m)
+        .discord_edit_message(
+            &hook,
+            Some("t1"),
+            "m1",
+            &Edit {
+                content: "summary",
+                embeds: Some(serde_json::json!([{ "thumbnail": { "url": "attachment://thumb-2.png" } }])),
+                keep: Some(vec!["5".into()]),
+                file: Some(Attachment { filename: "thumb-2.png", content_type: "image/png", bytes: b"PNG" }),
+            },
+        )
+        .unwrap();
+    assert_eq!(msg.attachments.len(), 2);
+    let reqs = m.reqs.lock().unwrap();
+    assert_eq!((reqs[0].method.as_str(), reqs[0].path.as_str()), ("PATCH", "/api/webhooks/42/tok/messages/m1?thread_id=t1"));
+    let body = &reqs[0].body;
+    assert!(body.contains(r#""attachments":[{"id":"5"},{"filename":"thumb-2.png","id":0}]"#), "{body}");
+    assert!(body.contains(r#""embeds":[{"thumbnail":{"url":"attachment://thumb-2.png"}}]"#), "{body}");
+    assert!(body.contains("filename=\"thumb-2.png\"\r\nContent-Type: image/png\r\n\r\nPNG\r\n"), "{body}");
+}

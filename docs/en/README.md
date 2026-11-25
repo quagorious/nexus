@@ -39,6 +39,8 @@ their own, in different ways (see [How it works](how-it-works.md)).
    from GitHub, the API key.
 3. **[Using the addon](using-the-addon.md)**: window, cards, squad view,
    options, keybinds, language.
+4. **[Posting cards to Discord](discord.md)** (optional): a webhook, and
+   the addon posts every raid night to a forum channel.
 
 More:
 

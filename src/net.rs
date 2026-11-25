@@ -52,3 +52,7 @@ pub fn gw2_all<T: serde::de::DeserializeOwned>(path: &str) -> NetResult<Vec<T>> 
 pub fn fetch_bytes(url: &str) -> NetResult<Vec<u8>> {
     CLIENT.fetch_bytes(url)
 }
+
+pub fn client() -> &'static Client {
+    &CLIENT
+}
